@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html style="height: 100%">
+
+<head>
+    <meta charset="utf-8">
+    <link href="../resources/common/webFrame/bootstrap-3.3.5/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="../resources/common/webFrame/bootstrap-datepicker/css/bootstrap-datetimepicker.min.css" rel="stylesheet" />
+    <style>
+        .mask {
+                position: absolute; top: 0px; filter: alpha(opacity=60); background-color: #777;
+                z-index: 999; left: 0px;
+                opacity:0.5; -moz-opacity:0.5;
+            }
+            .loadingDiv{
+                width: 42px;
+                height: 42px;
+                position: absolute;
+            }
+        </style>
+</head>
+
+<body style="height: 100%; margin: 0">
+    <div class="row" style="margin-top: 10px;margin-left: 100px;">
+        <div class="col-lg-7" style="display: inline-flex;">
+            <div class="input-group date form_datetime" data-link-field="beginTime">
+                <input class="form-control" id="beginInpt" size="16" type="text" placeholder="开始时间" value="2018-01-01">
+                <span class="input-group-addon"><span class="glyphicon glyphicon-th"></span></span>
+            </div>&nbsp;<strong style="padding-top: 7px;">━━</strong>&nbsp;
+            <div class="input-group date form_datetime" data-link-field="endTime" id="endTime">
+                <input class="form-control" id="endInpt" size="16" type="text" placeholder="结束时间" value="2018-01-01">
+                <span class="input-group-addon"><span class="glyphicon glyphicon-th"></span></span>
+            </div>
+        </div><!-- /.col-lg-6 -->
+        <div class="col-lg-3" style="display: inline-flex;">
+            <button type="button" class="btn btn-primary" id="searchBtn">查询</button>&nbsp;&nbsp;&nbsp;&nbsp;
+            <button type="button" class="btn btn-danger" id="clearBtn">清空</button>
+        </div><!-- /.col-lg-6 -->
+    </div><!-- /.row -->
+    <div class="content_main">
+        <div style="padding: 15px 30px;font-size: 13px;overflow: auto;">
+            <p>
+                <h4>功能使用方式概述：</h4>
+            </p>
+            <p><b>AIS数据分析</b>：选择“开始时间”和“结束时间”，然后点击“搜索”按钮，获得AIS数据分析结果。</p>
+        </div>
+    </div>
+    <div style="display: inline-flex;width: 100%;height: auto;">
+        <div id="container" style="height: 600px;width: 900px;"></div>
+        <div id="container1" style="height: 600px;width: 900px;"></div>
+    </div>
+    <div id="mask" class="mask">
+        <div style="display: none;" id="loadingDiv" class="loadingDiv">
+            <img src="../view/private/images/loading04.gif" width="35" height="35" border="0">
+        </div>
+    </div>
+    <script src="../resources/common/js/jquery.1.12.4.min.js"></script>
+    <script type="text/javascript" src="../resources/common/webFrame/echarts4/echarts.js"></script>
+    <script src="../resources/common/webFrame/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../resources/common/webFrame/bootstrap-datepicker/js/bootstrap-datetimepicker.min.js"
+        charset="UTF-8"></script>
+    <script type="text/javascript" src="../resources/common/webFrame/bootstrap-datepicker/js/locales/bootstrap-datetimepicker.zh-CN.js"
+        charset="UTF-8"></script>
+    <script type="text/javascript">
+        $(function () {
+
+            //设置开始时间和结束时间
+            $('.form_datetime').datetimepicker({
+                minView: "month", //选择日期后，不会再跳转去选择时分秒
+                language: 'zh-CN',
+                format: 'yyyy-MM-dd',
+                weekStart: 1,
+                todayBtn: 1,
+                autoclose: 1,
+                todayHighlight: 1,
+                startView: 2,
+                forceParse: 0,
+                showMeridian: 1
+            }).on('changeDate', function (ev) {
+                var startTime = $("#beginInpt").val();
+                $("#endTime").datetimepicker('setStartDate', startTime);
+            });
+
+            $("#container").css("width", "39%");
+            $("#container").css("height", "calc(100%-48px)");
+            var dom = document.getElementById("container");
+            var myChart = echarts.init(dom);
+            var app = {};
+            option = null;
+            app.title = '坐标轴刻度与标签对齐';
+
+
+
+            //饼状图配置项
+            $("#container1").css("width", "60%");
+            $("#container1").css("height", "calc(100%-48px)");
+            var dom1 = document.getElementById("container1");
+            var myChart1 = echarts.init(dom1);
+            var app1 = {};
+            option1 = null;
+            app1.title = '车辆轨迹日占比';
+
+            //清空按钮
+            $("#clearBtn").click(function () {
+                $("#beginInpt").val("");
+                $("#endInpt").val("");
+                $(".content_main").show();
+                $("#container").hide();
+                $("#container1").hide();
+            });
+
+
+            //搜索按钮
+            $("#searchBtn").click(function () {
+                //获取参数，发送请求，得到数据，加载图表
+                var begin = $("#beginInpt").val();
+                var end = $("#endInpt").val();
+                if (begin.trim().length === 0 || end.trim().length === 0) {
+                    alert("请选择要查询的时间！！！！");
+                    return;
+                }
+                //发送ajax请求
+                $.ajax({
+                    // url: "http://192.168.1.25:9090/flight24/ais/getShipTypeData",
+                    url: "http://192.168.1.199:8084/flight24/ais/getShipTypeData",
+                    type: "POST",
+                    dataType: "json",
+                    data: { "begin": begin, "end": end },
+                    beforeSend: function () {
+                        showMask();
+                    },
+                    success: function (data) {
+                        var obj = data.data;
+
+                        option = {
+                            color: ['#3398DB'],
+                            tooltip: {
+                                trigger: 'axis',
+                                axisPointer: {// 坐标轴指示器，坐标轴触发有效
+                                    type: 'shadow'        // 默认为直线，可选为：'line' | 'shadow'
+                                }
+                            },
+                            grid: {
+                                left: '3%',
+                                right: '4%',
+                                bottom: '3%',
+                                containLabel: true
+                            },
+                            xAxis: [
+                                {
+                                    type: 'category',
+                                    data: obj.xaxis,
+                                    axisTick: {
+                                        alignWithLabel: true
+                                    },
+                                    axisLabel: {//设置显示全部文字，并且垂直显示
+                                        interval: 0,
+                                        formatter: function (value) {
+                                            return value.split("").join("\n");
+                                        }
+                                    }
+                                }
+                            ],
+                            yAxis: [
+                                {
+                                    type: 'value'
+                                }
+                            ],
+                            series: [
+                                {
+                                    name: '数量',
+                                    type: 'bar',
+                                    barWidth: '60%',
+                                    data: obj.series
+                                }
+                            ]
+                        };
+                        ;
+
+                        //拼接饼状图数据
+                        var barlengend = [];
+                        barlengend = obj.xaxis.concat(obj.barxaxis);//饼状图图例
+
+                        var xaxisArr = obj.barxaxis;
+
+                        //内层数据拼接
+                        var barObj = obj.barseries;
+                        var barSeries = [];
+                        //外层数据拼接
+                        var barSeries1 = [];
+                        for (var bo in barObj) {
+                            var child = {};
+                            child.name = bo;
+                            var arr = barObj[bo];
+                            var count = 0;
+                            for (var i = 0; i < arr.length; i++) {
+                                count += arr[i];
+                                var child2 = {};
+                                child2.name = xaxisArr[i];
+                                child2.value = arr[i];
+                                barSeries1.push(child2);
+                            }
+                            child.value = count;
+                            barSeries.push(child);
+                        }
+                        option1 = {
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: "{a} <br/>{b}: {c} ({d}%)"
+                            },
+                            legend: {
+                                orient: 'horizontal',
+                                x: 'center',
+                                data: barlengend
+                            },
+                            series: [
+                                {
+                                    name: '轨迹点数',
+                                    type: 'pie',
+                                    selectedMode: 'single',
+                                    radius: [0, '25%'],
+                                    center: ['50%', '65%'],
+                                    label: {
+                                        normal: {
+                                            position: 'inner'
+                                        }
+                                    },
+                                    labelLine: {
+                                        normal: {
+                                            show: false
+                                        }
+                                    },
+                                    data: barSeries
+                                },
+                                {
+                                    name: '轨迹点数',
+                                    type: 'pie',
+                                    radius: ['35%', '45%'],
+                                    center: ['50%', '65%'],
+                                    label: {
+                                        normal: {
+                                            formatter: '{a|{a}}{abg|}\n{hr|}\n  {b|{b}：}{c}  {per|{d}%}  ',
+                                            backgroundColor: '#eee',
+                                            borderColor: '#aaa',
+                                            borderWidth: 1,
+                                            borderRadius: 4,
+                                            // shadowBlur:3,
+                                            // shadowOffsetX: 2,
+                                            // shadowOffsetY: 2,
+                                            // shadowColor: '#999',
+                                            // padding: [0, 7],
+                                            rich: {
+                                                a: {
+                                                    color: '#999',
+                                                    lineHeight: 22,
+                                                    align: 'center'
+                                                },
+                                                // abg: {
+                                                //     backgroundColor: '#333',
+                                                //     width: '100%',
+                                                //     align: 'right',
+                                                //     height: 22,
+                                                //     borderRadius: [4, 4, 0, 0]
+                                                // },
+                                                hr: {
+                                                    borderColor: '#aaa',
+                                                    width: '100%',
+                                                    borderWidth: 0.5,
+                                                    height: 0
+                                                },
+                                                b: {
+                                                    fontSize: 16,
+                                                    lineHeight: 33
+                                                },
+                                                per: {
+                                                    color: '#eee',
+                                                    backgroundColor: '#334455',
+                                                    padding: [2, 4],
+                                                    borderRadius: 2
+                                                }
+                                            }
+                                        }
+                                    },
+                                    data: barSeries1
+                                }
+                            ]
+                        };;
+
+                    }, complete: function () {//关闭遮罩，重新加载数据
+                        $(".content_main").hide();
+                        $("#container").show();
+                        $("#container1").show();
+                        if (option && typeof option === "object") {
+                            myChart.setOption(option, true);
+                        }
+                        if (option1 && typeof option1 === "object") {
+                            myChart1.setOption(option1, true);
+                        }
+                        hideMask();
+                    }
+                });
+
+            });
+
+            //一上来就加载2018-04-21至2018-04-30日的数据
+            $("#searchBtn").click();
+        });
+
+        //显示遮罩层
+        function showMask() {
+            $("#mask").css("height", $(document).height());
+            $("#mask").css("width", $(document).width());
+
+            var heightVal = $("#mask").height() / 2 - $("#loadingDiv").height() / 2;
+            var widthVal = $("#mask").width() / 2 - $("#loadingDiv").width() / 2;
+            $("#loadingDiv").css("top", heightVal);
+            $("#loadingDiv").css("left", widthVal);
+            $("#mask").show();
+            $("#loadingDiv").show();
+        }
+        //隐藏遮罩层
+        function hideMask() {
+            $("#mask").hide();
+        }
+    </script>
+</body>
+
+</html>

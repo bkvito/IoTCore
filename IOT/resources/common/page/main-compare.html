@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+	<head>
+		<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+		<script src="/web3d/three/3dview/main-page/include/systemHeaderResponseJS.js"></script>
+		<link rel="stylesheet" href="css/htmleaf-demo.css" />
+		<link rel="stylesheet" href="css/process.css" />
+		<link rel="stylesheet" href="/web3d/three/beyon/dat-gui/dat.gui.css" />
+		<script>
+			pageResponse("css","bootstrap335");
+			pageResponse("css","fontAwesome");
+			pageResponse("css","layui");
+			pageResponse("css","accordionMenu");
+			pageResponse("css","common");
+			pageResponse("css","xydStyle");
+			pageResponse("css","xSkin");
+			pageResponse("css","jqueryCustomScrollbar");
+			pageResponse("javascript","jquery183");
+		</script>
+		<!--[if lt IE 9]>
+			<script>pageResponseie8service();</script>
+		<![endif]-->
+		<script>
+			pageResponse("javascript","layui");
+			pageResponse("javascript","xydPlus");
+			pageResponse("javascript","artTemplate");
+			pageResponse("javascript","xydWebFunction");
+			pageResponse("javascript","xAttributeMenuTemplate");
+			pageResponse("javascript","xModelSearchWindowTemplate");
+			pageResponse("javascript","WdatePicker");
+			pageResponse("javascript","accordionMenu");
+			pageResponse("javascript","jqueryCustomScrollbar");
+			pageResponse("javascript","webAnimations");
+			pageResponse("javascript","animatelo");
+		</script>
+
+		<!--ThreeJs -->
+		<script type="text/javascript" src="/web3d/three/three.js"></script>
+		<!-- <script type="text/javascript" src="/web3d/js/jquery-2.1.4.min.js"></script> -->
+		<script type="text/javascript" src="/web3d/js/utls.js"></script>
+
+		<script type="text/javascript" src="/web3d/three/js/shaders/OceanShaders.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/Ocean.js"></script>
+		<script type="text/javascript" src="/web3d/three/beyon/background.js"></script>
+		<script type="text/javascript" src="/web3d/three/beyon/drawHitArea.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/shaders/CopyShader.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/shaders/FXAAShader.js"></script>
+		<script type="text/javascript" src="/web3d/three/beyon/dat-gui/dat.gui.js"></script>
+		<!-- 补间动画 -->
+		<script type="text/javascript" src="/web3d/three/js/libs/tween.min.js"></script>
+
+		<script type="text/javascript" src="/web3d/three/js/postprocessing/EffectComposer.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/postprocessing/RenderPass.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/postprocessing/ShaderPass.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/postprocessing/OutlinePass.js"></script>
+		<script type="text/javascript" src="/web3d/three/beyon/base_scene.js"></script>
+		<script type="text/javascript" src="/web3d/three/beyon/renderer_manager.js"></script>
+		<script type="text/javascript" src="/web3d/three/beyon/enum.js"></script>
+		<!-- 控制器 -->
+		<script type="text/javascript" src="/web3d/three/js/controls/TrackballControls.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/controls/FlyControls.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/controls/OrbitControls.js"></script>
+
+		<script type="text/javascript" src="/web3d/three/js/objects/Water.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/objects/Sky.js"></script>
+		
+		<script type="text/javascript" src="/web3d/three/js/loaders/DRACOLoader.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/loaders/GLTFLoader.js"></script>
+		<script type="text/javascript" src="/web3d/three/js/renderers/CSS2DRenderer.js"></script>
+
+		<script type="text/javascript" src="/web3d/three/beyon/mainCompare.js"></script>
+
+		
+
+		<style>
+			.model-windows{
+				position: relative;
+				overflow: inherit;
+			}
+			.model-windows .model-content{
+				position: relative;
+				top: 0;
+			}
+		</style>
+	</head>
+	<body class="no-transparent">
+		<div id="body-background-image"></div>
+		<div class="model-windows" id="model-windows">
+			<div class="model-header" id="model-header">
+				<div class="page-back">
+					<div class="p-button" id="x-btn-main-window">
+						<i class="iconfont fa fa-step-backward"></i>
+					</div>
+					<div class="p-font">
+						<font>三维模型对比</font>
+					</div>
+				</div>
+				<center>
+					<div class="page-title x-inlineblock">
+						<div class="t-logo">
+							<i class="iconfont fa fa-windows"></i>
+						</div>
+						<div class="t-box">
+							<div class="t-text">
+								<font>WEB 三 维 可 视 化 系 统</font>
+							</div>
+							<div class="t-info">
+								3D Visualization System
+							</div>
+						</div>
+						<div class="t-datetime" id="times-box"></div>
+					</div>
+				</center>
+				<div class="page-config">
+					<span style="position: relative;">
+						<div id="x-btn-config" class="x-inlineblock c-button">
+							<i class="iconfont fa fa-cog"></i>
+						</div>
+					</span>
+					
+					<div class="x-inlineblock c-button">
+						<i class="iconfont fa fa-power-off"></i>
+					</div>
+				</div>
+			</div>
+			<div id="model-content" class="model-content">
+				<div id="model-main"></div>
+				<div class="model-compare" id="model-compare">
+					<div class="compare-3d model-hide" id="compare-3d">
+						<div class="font-describe"></div>
+						<div class="src-model">
+							<div id="model-search-box" class="model-search-box">
+								<div class="search-bean search-button-box">
+									<i class="iconfont fa fa-search x-inlineblock" id="button-search"></i>
+									<div id="search-input-box" class="search-input-box panel-hide">
+										<div class="title">
+											<i class="iconfont fa fa-search"></i>
+											<font>数据搜索</font>
+										</div>
+										<div id="search-tree" class="search-tree">
+											<div class="jq-ac-dom">
+												<center>
+													<div class="jquery-accordion-menu-header" id="form"></div>
+												</center>
+											</div>
+											
+											<div id="jquery-accordion-menu" class="jquery-accordion-menu"></div>
+										</div>
+									</div>
+								</div>
+								<div class="search-bean model-name">
+									<font>拉森号(DDG82)</font>
+								</div>
+							</div>
+						</div>
+						<div class="src-model">
+							<div id="model-search-box" class="model-search-box">
+								<div class="search-bean search-button-box">
+									<i class="iconfont fa fa-search x-inlineblock" id="button-search1"></i>
+									<div id="search-input-box1" class="search-input-box panel-hide">
+										<div class="title">
+											<i class="iconfont fa fa-search"></i>
+											<font>数据搜索</font>
+										</div>
+										<div id="search-tree1" class="search-tree">
+											<div class="jq-ac-dom">
+												<center>
+													<div class="jquery-accordion-menu-header" id="form1"></div>
+												</center>
+											</div>
+											
+											<div id="jquery-accordion-menu1" class="jquery-accordion-menu"></div>
+										</div>
+									</div>
+								</div>
+								<div class="search-bean model-name">
+									<font>拉森号(DDG82)</font>
+								</div>
+							</div>
+						</div>
+					</div>
+					
+					<div class="compare-3d">
+						<div class="font-describe"></div>
+						<div class="src-model" id="src-model-box"></div>
+					</div>
+					<div class="compare-font-box" id="compare-font-box">
+						<div class="compare-font-title">
+							<i class="iconfont x-iconfont-down fa fa-minus-circle"></i>
+							<font>基础属性</font>
+						</div>
+						<ul id="compare-font-ul" class="compare-font-ul"></ul>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<script src="main-compare.js"></script>
+	</body>
+</html>
+<script id="TemplateTopTimes" type="text/html">
+	<font class="time-bean time x-inlineblock">{{time}}</font>
+	<div class="time-bean date-week x-inlineblock">
+		<div class="date">{{date}}</div>
+		<div class="week" style="">{{week}}</div>
+	</div>
+</script>
+<script id="TemplateCompareDataPanel" type="text/html">
+{{if run===true}}
+	{{each data.key as value i}}
+	{{if datalist[0][value]!=datalist[1][value]}}
+	<li class="compare-li red">
+	{{else}}
+	<li class="compare-li">
+	{{/if}}
+	
+		<div class="font-describe">{{value}}</div>
+		<div class="src-text">{{datalist[0][value]}}</div>
+		<div class="new-text">{{datalist[1][value]}}</div>
+	</li>
+	{{/each}}
+{{/if}}
+</script>
