@@ -1,0 +1,69 @@
+{
+	"JQureyTree": [
+		{
+			"children": [
+				{
+					"children": [
+						{
+							"id": "01",
+							"text": "BGM-109C Z斧巡航DD",
+							"iconCls": ""
+						}, {
+							"id": "02",
+							"text": "RUR-5A/RUM-139Vl阿斯洛克反潜火箭",
+							"iconCls": ""
+						}
+					],
+					"id": "0101",
+					"text": "垂直发射系统",
+					"state": "closed",
+					"iconCls": ""
+				}, {
+					"children": [
+						{
+							"id": "03",
+							"text": "AGM/UGM/RGM-84鱼叉反舰DD",
+							"iconCls": ""
+						}
+					],
+					"id": "0102",
+					"text": "DD发射架",
+					"state": "closed",
+					"iconCls": ""
+				}, {
+					"children": [
+						{
+							"id": "04",
+							"text": "324毫米三联装反潜鱼雷发射管",
+							"iconCls": ""
+						}
+					],
+					"id": "0103",
+					"text": "鱼雷发射管",
+					"state": "closed",
+					"iconCls": ""
+				}, {
+					"children": [
+						{
+							"id": "05",
+							"text": "MK45型127毫米舰P",
+							"iconCls": ""
+						}, {
+							"id": "06",
+							"text": "MK15型20毫米6管M集阵近防P",
+							"iconCls": ""
+						}
+					],
+					"id": "0104",
+					"text": "舰P",
+					"state": "closed",
+					"iconCls": ""
+				}
+			],
+			"id": "01",
+			"text": "WQZB",
+			"state": "closed",
+			"iconCls": ""
+		}
+	]
+}
