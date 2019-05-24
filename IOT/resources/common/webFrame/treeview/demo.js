@@ -1,1 +1,0 @@
-$(document).ready(function(){$("#browser").treeview();$("#navigation").treeview({persist:"location",collapsed:!0,unique:!0});$("#red").treeview({animated:"fast",collapsed:!0,unique:!0,persist:"cookie",toggle:function(){window.console&&console.log("%o was toggled",this)}});$("#black, #gray").treeview({control:"#treecontrol",persist:"cookie",cookieId:"treeview-black"})});
