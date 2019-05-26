@@ -1,0 +1,2852 @@
+/*global define*/
+define([
+		'../../ThirdParty/when',
+        '../../Core/defined',
+        '../../Core/defineProperties',
+        '../../Core/destroyObject',
+        '../../Core/DeveloperError',
+		'../../Core/createGuid',
+		'../../Core/Cartesian2',
+		'../../Core/Cartesian3',
+		'../../Core/Math',
+        '../../Core/FeatureDetection',
+		'../../Core/defaultValue',
+		'../../Core/Ellipsoid',
+		'../../Core/EllipsoidGeodesic',
+		'../../Core/ScreenSpaceEventHandler',
+		'../../Core/ScreenSpaceEventType',
+		'../../Core/Color',
+		'../../Core/GeometryInstance',
+		'../../Core/Rectangle',
+		'../../Core/buildModuleUrl',
+		'../../Core/Cartographic',
+		'../../Core/PolygonHierarchy',
+		'../../Core/Event',
+		'../../Scene/Material',
+		'../../Scene/PolylineMaterialAppearance',
+		'../../Scene/Primitive',
+		'../../Scene/Billboard',
+		'../../Scene/BillboardCollection',
+		'../../Scene/HorizontalOrigin',
+		'../../Scene/VerticalOrigin',
+		'../../Scene/SceneTransforms',
+		'../../Scene/HeightReference',
+		'../../DataSources/PolylineArrowMaterialProperty',
+        '../../ThirdParty/knockout',
+        '../getElement',
+		'./pickSurface',
+		'./DrawingCollection',
+		'./BillboardGroup',
+		'./DrawingManagerViewModel',
+		'./DrawingTypes',
+		'./DrawingEvent',
+		'./copyOptions',
+		'./fillOptions',
+		'./defaultShapeOptions',
+		'./defaultSurfaceOptions',
+		'./ChangeablePrimitive',
+		'./ExtentPrimitive',
+		'./CirclePrimitive',
+		'./PolylinePrimitive',
+		'./PolylineArrowPrimitive',
+		'./PolygonPrimitive',
+		'./PlotPrimitive',
+		'./MarkerPrimitive',
+		'./EllipsePrimitive',
+		'./MarkerCollection',
+		'./PolygonArea',
+		'./ModelPrimitive',
+		'./ModelCollection'
+    ], function (
+		when,
+        defined,
+        defineProperties,
+        destroyObject,
+        DeveloperError,
+		createGuid,
+		Cartesian2,
+		Cartesian3,
+		CesiumMath,
+        FeatureDetection,
+		defaultValue,
+		Ellipsoid,
+		EllipsoidGeodesic,
+		ScreenSpaceEventHandler,
+		ScreenSpaceEventType,
+		Color,
+		GeometryInstance,
+		Rectangle,
+		buildModuleUrl,
+		Cartographic,
+		PolygonHierarchy,
+		Event,
+		Material,
+		PolylineMaterialAppearance,
+		Primitive,
+		Billboard,
+		BillboardCollection,
+		HorizontalOrigin,
+		VerticalOrigin,
+		SceneTransforms,
+		HeightReference,
+		PolylineArrowMaterialProperty,
+        knockout,
+        getElement,
+		pickSurface,
+		DrawingCollection,
+		BillboardGroup,
+		DrawingManagerViewModel,
+		DrawingTypes,
+		DrawingEvent,
+		copyOptions,
+		fillOptions,
+		defaultShapeOptions,
+		defaultSurfaceOptions,
+		ChangeablePrimitive,
+		ExtentPrimitive,
+		CirclePrimitive,
+		PolylinePrimitive,
+		PolylineArrowPrimitive,
+		PolygonPrimitive,
+		PlotPrimitive,
+		MarkerPrimitive,
+		EllipsePrimitive,
+		MarkerCollection,
+		PolygonArea,
+		ModelPrimitive,
+		ModelCollection) {
+    'use strict';
+
+    // static variables
+    var ellipsoid = Ellipsoid.WGS84;
+	var defaultPolylineOptions = copyOptions(defaultShapeOptions, {
+        width: 5,
+        geodesic: true,
+        granularity: 10000,
+        appearance: new PolylineMaterialAppearance({
+			flat: true,
+			renderState: {
+				lineWidth: 1
+			}
+        })
+    });
+
+	var material = Material.fromType("PolylineArrow");
+	material.uniforms.color = new Color(1.0, 1.0, 0.0, 0.5);
+
+	var defaultPolylineArrowOptions = {
+		ellipsoid: Ellipsoid.WGS84,
+        textureRotationAngle: 0.0,
+        //height: 0,
+		//extrudedHeight : 20,
+		perPositionHeight : true,
+        asynchronous: true,
+        show: true,
+        debugShowBoundingVolume: false,
+		material : material,
+
+        width: 20,
+        geodesic: true,
+        granularity: 10000,
+        appearance: new PolylineMaterialAppearance({
+			material : material,
+			translucent : material.isTranslucent(),
+			closed : false
+		})
+    };
+
+    // constructor
+    function DrawingManager(viewer, options) {
+        if (!defined(viewer)) {
+            throw new DeveloperError('viewer is required.');
+        }
+		this._viewer = viewer;
+        this._scene = viewer.scene;
+
+        options = defaultValue(options, {});
+        this._drawingControl = defaultValue(options.drawingControl, false);
+        this._drawingControlOptions = defaultValue(options.drawingControlOptions, {});
+        this._markerOptions = defaultValue(options.markerOptions, {}); 	
+		this._modelOptions = defaultValue(options.modelOptions, {}); 	
+        this._circleOptions = defaultValue(options.circleOptions, {});
+        this._polylineOptions = defaultValue(options.polylineOptions, {});
+        this._polygonOptions = defaultValue(options.polygonOptions, {});
+        this._rectangleOptions = defaultValue(options.rectangleOptions, {});
+        this._arrowOptions = defaultValue(options.arrowOptions, {});
+
+		this._markerQueryOptions = defaultValue(options.markerQueryOptions, {});
+		this._rectangleQueryOptions = defaultValue(options.rectangleQueryOptions, {});
+		this._circleQueryOptions = defaultValue(options.circleQueryOptions, {});
+		this._showTooltip = defaultValue(options.showTooltip, true);
+
+        var viewModel = new DrawingManagerViewModel(options);
+
+		if(!defined(this._drawPrimitives)){
+			var plots = new DrawingCollection(this);
+			this._scene.primitives.add(plots);
+			this._drawPrimitives = plots;
+		}
+
+		//当前的绘制模式, 默认是绘制点
+		this._drawingMode = options.drawingMode || DrawingTypes.DRAWING_NONE;
+
+        //地图上绘制显示工具栏
+		var toolContainer = viewer.container.getElementsByClassName('cesium-viewer-toolbar')[0];
+        this._container = getElement(toolContainer);
+        this._tooltip = createTooltip(this._container.parentNode, viewModel);
+
+        if (this._drawingControl) {
+            this.addToolbar(this._container, viewModel, this._drawingControlOptions);
+        }
+
+         this._isOpen = !!(options.isOpen === true);
+         if (this._isOpen) {
+             this.open();
+         }
+
+        this._surfaces = [];
+        this._viewModel = viewModel;
+
+		this._markers = undefined;
+        this._mouseHandler = undefined;
+		this._dragEndEvent = new Event();
+
+        this.initialiseHandlers();
+
+		this.listenerMoveEnd();
+
+		var id = options.id;
+        if (!defined(id)) {
+            id = createGuid();
+        }
+		this._id = id;
+    }
+
+	// 通过inherits方法，让DrawingManager继承DrawingEvent
+    inherits(DrawingManager, DrawingEvent, "DrawingManager");
+
+    defineProperties(DrawingManager.prototype, {
+        /**
+            
+		* Gets the parent container.
+            
+		* @memberof DrawingManager.prototype
+            
+		*
+
+		* @type {Element}
+            
+		*/
+        container: {
+            get: function () {
+                return this._container;
+            }
+        },
+
+        /**
+            
+		* Gets the view model.
+            
+		* @memberof DrawingManager.prototype
+            
+		*
+            
+		* @type {DrawingManagerViewModel}
+            
+		*/
+        viewModel: {
+            get: function () {
+                return this._viewModel;
+            }
+        },
+
+        /**
+            
+		* Gets the view model.
+            
+		* @memberof DrawingManager.prototype
+            
+		*
+            
+		* @type {DrawingManagerViewModel}
+            
+		*/
+        drawPrimitives: {
+            get: function () {
+                return this._drawPrimitives;
+            }
+        },
+
+		/**
+            
+		* Gets the secne.
+            
+		* @memberof DrawingManager.prototype
+            
+		*
+            
+		* @type {Scene}
+            
+		*/
+		scene : {
+			get: function(){
+				return this._scene;
+			}
+		},
+
+		/**
+            
+		* Gets the drag end event.
+            
+		* @memberof DrawingManager.prototype
+            
+		*
+            
+		* @type {Event}
+            
+		*/
+		dragEndEvent : {
+			get: function(){
+				return this._dragEndEvent;
+			}
+		}
+    });
+
+	DrawingManager.prototype.open = function() {
+		if(this._isOpen)
+			return true;
+
+		switch(this._drawingMode){
+				case DrawingTypes.DRAWING_STRAIGHT_ARROW:
+					this.startDrawingPlot(DrawingTypes.DRAWING_STRAIGHT_ARROW, this._arrowOptions);
+					break;
+				case DrawingTypes.DRAWING_ATTACK_ARROW:
+					this.startDrawingPlot(DrawingTypes.DRAWING_ATTACK_ARROW, this._arrowOptions);
+					break;
+				case DrawingTypes.DRAWING_TAILED_ATTACK_ARROW:
+					this.startDrawingPlot(DrawingTypes.DRAWING_TAILED_ATTACK_ARROW, this._arrowOptions);
+					break;
+				case DrawingTypes.DRAWING_DIAGONAL_ARROW:
+					this.startDrawingPlot(DrawingTypes.DRAWING_DIAGONAL_ARROW, this._arrowOptions);
+					break;
+				case DrawingTypes.DRAWING_TAILED_DIAGONAL_ARROW:
+					this.startDrawingPlot(DrawingTypes.DRAWING_TAILED_DIAGONAL_ARROW, this._arrowOptions);
+					break;
+				case DrawingTypes.DRAWING_DOUBLE_ARROW:
+					this.startDrawingPlot(DrawingTypes.DRAWING_DOUBLE_ARROW, this._arrowOptions);
+					break;
+				case DrawingTypes.DRAWING_MARKER_QUERY:
+					this.startDrawingMarkerQuery(this._markerQueryOptions);
+					break;
+				case DrawingTypes.DRAWING_MARKER : 
+					this.startDrawingMarker(this._markerOptions);
+					break;
+				case DrawingTypes.DRAWING_MODEL : 
+					this.startDrawingModel(this._modelOptions);
+					break;
+				case DrawingTypes.DRAWING_POLYLINE :
+					this.startDrawingPolyline(this._polylineOptions);
+					break;
+				case DrawingTypes.DRAWING_POLYLINE_ARROW :
+					this.startDrawingPolylineArrow(this._polylineArrowOptions);
+					break;
+				case DrawingTypes.DRAWING_POLYGON : 
+					this.startDrawingPolygon(this._polygonOptions);
+					break;
+				case DrawingTypes.DRAWING_RECTANGLE_QUERY : 
+					this.startDrawingRectangleQuery(this._rectangleQueryOptions);
+					break;
+				case DrawingTypes.DRAWING_RECTANGLE : 
+					this.startDrawingRectangle(this._rectangleOptions);
+					break;
+				case DrawingTypes.DRAWING_CIRCLE : 
+					this.startDrawingCircle(this._circleOptions);
+					break;
+				case DrawingTypes.DRAWING_CIRCLE_QUERY : 
+					this.startDrawingCircleQuery(this._circleQueryOptions);
+					break;
+				case DrawingTypes.DRAWING_CLICK_QUERY : 
+					this.startDrawingClickQuery(this._clickQueryOptions);
+					break;
+			}
+
+		this._isOpen = true;
+
+		return true;
+	}
+
+	DrawingManager.prototype.remove = function(primitive) {
+		if(defined(this._drawPrimitives)){
+			return this._drawPrimitives.remove(primitive);
+		}
+
+		return false;
+	}
+
+	DrawingManager.prototype.close = function() {
+		if(!this._isOpen)
+			return true;
+
+		//关闭
+		// undo any current edit of shapes
+        this.disableAllEditMode();
+		// check for cleanUp first
+        if (this.editCleanUp) {
+            this.editCleanUp();
+            this.editCleanUp = null;
+        }
+        this.muteHandlers(false);
+
+		//清楚屏幕绘制元素
+
+		this._isOpen = false;
+	}
+
+	/**
+     * 设置当前的绘制模式
+     * @param {DrawingMode}
+     */
+    DrawingManager.prototype.setDrawingMode = function(drawingMode) {
+ 
+         this._drawingMode = drawingMode;
+ 
+         /**
+          * 开启编辑状态时候才重新进行事件绑定
+          */
+         if (this._isOpen) { 
+             this.open();
+         }
+ 
+         /** 
+          * 如果添加了工具栏，则也需要改变工具栏的样式
+          */
+         if (this._drawingTool && this._isOpen) {
+             //this._drawingTool.setStyleByDrawingMode(drawingMode);
+         }
+    }
+
+	/**
+     * 设置当前的绘制模式
+     * @param {DrawingMode}
+     */
+    DrawingManager.prototype.getDrawingMode = function() {
+         return this._drawingMode;
+    }
+
+	DrawingManager.prototype.clearSelect = function() {
+         for(var i = 0; i < this._drawPrimitives.length; i++){
+			 var primitive = this._drawPrimitives.get(i);
+			 if(defined(primitive) && primitive.isDestroyed && !primitive.isDestroyed()){
+				 //点设置
+				 if(defined(primitive.length)){
+					 for(var j = 0; j < primitive.length; j++){
+						 var marker = primitive.get(j);
+						 if(defined(marker) && marker.isDestroyed && !marker.isDestroyed()){
+							 marker.selectable = false;
+						 }
+					 }
+				 } else {
+					primitive.selectable = false;
+				 }
+			 }
+		 }
+    }
+
+	DrawingManager.prototype.clearEdit = function() {
+         for(var i = 0; i < this._drawPrimitives.length; i++){
+			 var primitive = this._drawPrimitives.get(i);
+			 if(defined(primitive) && primitive.isDestroyed && !primitive.isDestroyed()){
+				 //点设置
+				 if(defined(primitive.length)){
+					 for(var j = 0; j < primitive.length; j++){
+						 var marker = primitive.get(j);
+						 if(defined(marker) &&  marker._editable && defined(marker.markerCollection)){
+							 marker.markerCollection.remove(marker);
+						 }
+					 }
+
+					 if(primitive.lenght == 0){
+						this._drawPrimitives.removeAndDestroy(primitive);
+					 }
+				 } else {
+					if(primitive._editable){
+						this._drawPrimitives.removeAndDestroy(primitive);
+					}
+				 }
+			 }
+		 }
+    }
+
+	DrawingManager.prototype.remove = function(primitive) {
+		if(defined(primitive) && primitive.isDestroyed && !primitive.isDestroyed()){
+			if(defined(primitive.markerCollection)){
+				var collection = primitive.markerCollection;
+				collection.remove(primitive);
+				if(collection.lenght == 0){
+					this._drawPrimitives.removeAndDestroy(collection);
+				}
+			} else {
+				this._drawPrimitives.removeAndDestroy(primitive);
+			}
+		}
+    }
+
+    DrawingManager.prototype.initialiseHandlers = function () {
+        var scene = this._scene;
+        var _self = this;
+        // scene events
+		var pickedObject;
+		var mouseSelect = true;
+        var handler = new ScreenSpaceEventHandler(scene.canvas);
+        function callPrimitiveCallback(name, position) {
+            if (_self._handlersMuted == true) 
+				return;
+			mouseSelect = true;
+            pickedObject = scene.pick(position);
+            if (pickedObject && pickedObject.primitive && pickedObject.primitive[name]) {
+                pickedObject.primitive[name](position);
+            }
+
+			if(name === 'leftUp' ){
+				mouseSelect = false;
+				if(pickedObject && pickedObject.primitive 
+				&& pickedObject.primitive.markerPrimitive){
+					_self._dragEndEvent.raiseEvent(pickedObject.primitive.markerPrimitive);
+				}
+			}
+        }
+
+        handler.setInputAction(
+        function (movement) {
+			if (_self._handlersMuted == true) return;
+            callPrimitiveCallback('leftClick', movement.position);
+        }, ScreenSpaceEventType.LEFT_CLICK);
+
+        handler.setInputAction(
+        function (movement) {
+			if (_self._handlersMuted == true) return;
+            callPrimitiveCallback('leftDoubleClick', movement.position);
+        }, ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+
+        var mouseOutObject;
+        handler.setInputAction(
+        function (movement) {
+            if (_self._handlersMuted == true || _self._drawPrimitives.length === 0 ||
+				!pickedObject || !mouseSelect) 
+				return;
+			try{
+				//var pickedObject = scene.pick(movement.endPosition);
+				if (mouseOutObject && (!pickedObject || mouseOutObject != pickedObject.primitive)) {
+					!(mouseOutObject.isDestroyed && mouseOutObject.isDestroyed()) && mouseOutObject.mouseOut(movement.endPosition);
+					mouseOutObject = null;
+				}
+				if (pickedObject && pickedObject.primitive) {
+					pickedObject = pickedObject.primitive;
+
+					if (pickedObject.mouseOut) {
+						mouseOutObject = pickedObject;
+					}
+					if (pickedObject.mouseMove) {
+						pickedObject.mouseMove(movement.endPosition);
+					}
+				}
+			}catch(e){
+				//todo
+			}
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+
+        handler.setInputAction(
+        function (movement) {
+			if (_self._handlersMuted == true) return;
+            callPrimitiveCallback('leftUp', movement.position);
+        }, ScreenSpaceEventType.LEFT_UP);
+
+        handler.setInputAction(
+        function (movement) {
+			if (_self._handlersMuted == true) return;
+            callPrimitiveCallback('leftDown', movement.position);
+        }, ScreenSpaceEventType.LEFT_DOWN);
+    }
+
+    DrawingManager.prototype.setListener = function (primitive, type, callback) {
+        primitive[type] = callback;
+    }
+
+    DrawingManager.prototype.muteHandlers = function (muted) {
+        this._handlersMuted = muted;
+    }
+
+	DrawingManager.prototype.showTooltip = function (tooltip) {
+        this._showTooltip = tooltip;
+    }
+
+    // register event handling for an editable shape
+    // shape should implement setEditMode and setHighlighted
+    DrawingManager.prototype.registerEditableShape = function (surface) {
+        var _self = this;
+
+        // handlers for interactions
+        // highlight polygon when mouse is entering
+        setListener(surface, 'mouseMove', function (position) {
+			if(!_self._handlersMuted && surface.owner === _self){
+				surface.setHighlighted(true);
+				if (!surface._editMode && _self._showTooltip) {
+					_self._tooltip.showAt(position, "点击编辑此要素");
+				}
+			}
+        });
+        // hide the highlighting when mouse is leaving the polygon
+        setListener(surface, 'mouseOut', function (position) {
+			if(!_self._handlersMuted && surface.owner === _self){
+				surface.setHighlighted(false);
+				_self._tooltip.setVisible(false);
+			}
+        });
+        setListener(surface, 'leftClick', function (position) {
+			if(!_self._handlersMuted && surface.owner === _self){
+				surface.setEditMode(true);
+			}
+        });
+    }
+
+	// register event handling for an editable shape
+    // shape should implement setEditMode and setHighlighted
+    DrawingManager.prototype.unregisterEditableShape = function (surface) {
+        var _self = this;
+
+        // handlers for interactions
+        // highlight polygon when mouse is entering
+        removeListener(surface, 'mouseMove');
+        // hide the highlighting when mouse is leaving the polygon
+        removeListener(surface, 'mouseOut');
+        removeListener(surface, 'leftClick');
+    }
+
+    DrawingManager.prototype.startDrawing = function (cleanUp) {
+        // undo any current edit of shapes
+        this.disableAllEditMode();
+        // check for cleanUp first
+        if (this.editCleanUp) {
+            this.editCleanUp();
+        }
+        this.editCleanUp = cleanUp;
+        this.muteHandlers(true);
+    }
+
+    DrawingManager.prototype.stopDrawing = function () {
+		this._markers = this._markers && this._markers.remove();
+		this._mouseHandler = this._mouseHandler && this._mouseHandler.destroy();
+		this.tooltip = this.tooltip && this.tooltip.setVisible(false);
+
+        // check for cleanUp first
+        if (this.editCleanUp) {
+            this.editCleanUp();
+            this.editCleanUp = null;
+        }
+        this.muteHandlers(false);
+
+		if(defined(this._scene)) {
+			this._scene.screenSpaceCameraController.enableLook = true;
+			this._scene.screenSpaceCameraController.enableTilt = true;
+			this._scene.screenSpaceCameraController.enableRotate = true;
+			this._scene.refreshAlways = false;
+		}
+		
+		if(defined(this._viewer)){
+			this._viewer.enableInfoOrSelection = true;
+			//删除当前视图的点击和双击事件
+			this._viewer.removeInputActions();
+			//恢复当前视图的点击和双击事件
+			this._viewer.setInputActions();
+		}
+    }
+
+	DrawingManager.prototype.openDrawing = function (cleanUp) {
+		// undo any current edit of shapes
+        this.disableAllEditMode();
+        // check for cleanUp first
+        if (this.editCleanUp) {
+            this.editCleanUp();
+        }
+        this.editCleanUp = cleanUp;
+
+        this.muteHandlers(false);
+    }
+
+	DrawingManager.prototype.closeDrawing = function () {
+		this._markers = this._markers && this._markers.remove();
+		this._mouseHandler = this._mouseHandler && this._mouseHandler.destroy();
+
+		if(this._tooltip){
+			this._tooltip.setAllVisible(false);
+		}
+
+		if(this._editedSurface){
+			this._editedSurface._editMarkers = this._editedSurface._editMarkers && this._editedSurface._editMarkers.remove();
+			this._editedSurface._markers = this._editedSurface._markers && this._editedSurface._markers.remove();
+		}
+
+        // check for cleanUp first
+        if (this.editCleanUp) {
+            this.editCleanUp();
+            this.editCleanUp = null;
+        }
+        this.muteHandlers(true);
+
+		if(defined(this._scene)) {
+			this._scene.screenSpaceCameraController.enableLook = true;
+			this._scene.screenSpaceCameraController.enableTilt = true;
+			this._scene.screenSpaceCameraController.enableRotate = true;
+			this._scene.refreshAlways = false;
+		}
+		
+		if(defined(this._viewer)){
+			//删除当前视图的点击和双击事件
+			this._viewer.removeInputActions();
+			//恢复当前视图的点击和双击事件
+			this._viewer.setInputActions();
+			this._viewer.enableInfoOrSelection = true;
+		}
+    }
+
+	DrawingManager.prototype.setEditable = function (primitive, isEditable) {
+        if (primitive && !primitive.isDestroyed()) {
+            primitive.setEditable(isEditable);
+        }
+    }
+
+    // make sure only one shape is highlighted at a time
+    DrawingManager.prototype.disableAllHighlights = function () {
+        this.setHighlighted(undefined);
+    }
+
+    DrawingManager.prototype.setHighlighted = function (surface) {
+        if (this._highlightedSurface && !this._highlightedSurface.isDestroyed() && this._highlightedSurface != surface) {
+            this._highlightedSurface.setHighlighted(false);
+        }
+        this._highlightedSurface = surface;
+    }
+
+    DrawingManager.prototype.disableAllEditMode = function () {
+        this.setEdited(undefined);
+    }
+
+    DrawingManager.prototype.setEdited = function (surface) {
+        if (this._editedSurface && !this._editedSurface.isDestroyed()) {
+            this._editedSurface.setEditMode(false);
+        }
+        this._editedSurface = surface;
+    }
+
+	/**
+		设置指定类型要素是否可见
+	*/
+	DrawingManager.prototype.setVisible = function (drawingType, show) {
+		if(drawingType === DrawingTypes.DRAWING_MARKER || drawingType === DrawingTypes.DRAWING_MODEL){
+			for(var i = 0; i < this._drawPrimitives.length; i++){
+				var primitive = this._drawPrimitives.get(i);
+				 if(defined(primitive) && primitive.isDestroyed && !primitive.isDestroyed() && defined(primitive.length)){
+					primitive.show = show;
+				 }
+			}
+		} else {
+			for(var i = 0; i < this._drawPrimitives.length; i++){
+				var primitive = this._drawPrimitives.get(i);
+				if(defined(primitive) && primitive.isDestroyed && !primitive.isDestroyed() && primitive.getType &&
+					primitive.getType() === drawingType){
+					primitive.show = show;
+				}
+			}
+		}
+
+        this._scene.refreshOnce = true;
+    }
+
+	/**
+		设置所有要素是否可见
+	*/
+	DrawingManager.prototype.setAllVisible = function (show) {
+		for(var i = 0; i < this._drawPrimitives.length; i++){
+			var primitive = this._drawPrimitives.get(i);
+			if(defined(primitive) && primitive.isDestroyed && !primitive.isDestroyed()){
+				primitive.show = show;
+			}
+		}
+		this._scene.refreshOnce = true;
+	}
+
+	/**
+      * 派发事件
+      */
+     DrawingManager.prototype._dispatchOverlayBegin = function (options) {
+		 //1.隐藏显示框
+		 if(this._drawingMode === DrawingTypes.DRAWING_MARKER_QUERY ||
+			 this._drawingMode === DrawingTypes.DRAWING_CLICK_QUERY){
+			 this._viewer.enableInfoOrSelection = false;
+		 } else {
+			 this._viewer.enableInfoOrSelection = true;
+		 }
+
+		if(options && options.cursorUrl){
+			this._tooltip.setCursor(options.cursorUrl, true);
+		}
+
+		updateToolIcon(this, true);
+
+         var resultOptions = {
+             'drawingMode' : this._drawingMode,
+             'drawManager'   : this
+         };
+
+		 var id = this._drawingMode + 'Begin';
+		 if(options && options.customId){
+			 id = options.customId + 'Begin';
+		 }
+
+		//删除当前视图的点击和双击事件
+		this._viewer.removeInputActions();
+
+        this.dispatchEvent(id, resultOptions);
+     }
+
+	 /**
+      * 派发事件
+      */
+     DrawingManager.prototype._dispatchOverlayComplete = function (primitive, positions, customData, options) {
+
+		 //设置工具图标
+		 if(this._drawingMode !== DrawingTypes.DRAWING_MARKER_QUERY){
+			updateToolIcon(this, false);
+		 }
+		
+		 if(options && options.cursorUrl){ 
+			this._tooltip.setCursor(options.cursorUrl, false);
+		 }
+
+         var resultOptions = {
+             'primitive'     : primitive,
+             'drawingMode' : this._drawingMode,
+             'positions'   : positions,
+             'data'       : customData
+         };
+
+		 var id = this._drawingMode + 'Complete';
+		 if(options && options.customId){
+			 id = options.customId + 'Complete';
+		 }
+
+         this.dispatchEvent(id, resultOptions);
+
+		 //恢复当前视图的点击和双击事件
+		 this._viewer.setInputActions();
+
+		 if(defined(this._scene)) {
+			this._scene.refreshAlways = false;
+		 }
+     }
+
+	/**
+      * 派发事件
+      */
+     DrawingManager.prototype._dispatchOverlayEdited = function (primitive, content) {
+         var options = {
+             'primitive'     : primitive,
+             'drawingMode' : primitive.getType(),
+             'content'   : content
+         };
+         this.dispatchEvent(primitive.getType() + 'Edited', options);
+     }
+
+	/**
+      * 派发事件
+      */
+     DrawingManager.prototype._dispatchSearchComplete = function (searchPrimitive, results) {
+         var options = {
+             'search' : searchPrimitive,
+             'results'   : results
+         };
+         this.dispatchEvent(searchPrimitive.getType() + 'SearchComplete', options);
+     }
+
+    var defaultBillboard = {
+        iconUrl: buildModuleUrl("Widgets/Images/DrawingManager/dragIcon.png"),
+        shiftX: 0,
+        shiftY: 0
+    }
+
+    var dragBillboard = {
+        iconUrl: buildModuleUrl("Widgets/Images/DrawingManager/dragIcon.png"),
+        shiftX: 0,
+        shiftY: 0
+    }
+
+    var dragHalfBillboard = {
+        iconUrl: buildModuleUrl("Widgets/Images/DrawingManager/dragIconLight.png"),
+        shiftX: 0,
+        shiftY: 0
+    }
+
+    DrawingManager.prototype.createBillboardGroup = function (points, options, callbacks) {
+        var markers = new BillboardGroup(this, options);
+        markers.addBillboards(points, callbacks);
+        return markers;
+    }
+
+	DrawingManager.prototype.startDrawingMarkerQuery = function (options) {
+		var _self = this;
+
+		if(this._drawingMode === DrawingTypes.DRAWING_MARKER_QUERY){
+			//更新工具条
+			updateToolIcon(_self, false);
+			this.stopDrawing();
+			this._drawingMode = DrawingTypes.DRAWING_NONE;
+			this._viewer.enableInfoOrSelection = true;
+			return;
+		} 
+
+		var options = copyOptions(options, defaultBillboard);
+		
+        this.startDrawing(
+			function () {
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//设为可选状态
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_MARKER_QUERY;
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        _self._markers = new BillboardGroup(this, options);
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						//删除选择
+						_self.clearSelect();
+
+						var position = ellipsoid.cartesianToCartographic(cartesian);
+						var epsilon = CesiumMath.EPSILON7;
+						var positions = [Cartographic.fromRadians(position.longitude - epsilon, position.latitude - epsilon, 0),
+										 Cartographic.fromRadians(position.longitude + epsilon, position.latitude + epsilon, 0)];
+						
+						//绘制标记
+						var b = new MarkerCollection(_self._viewer);
+						var marker = b.add(CesiumMath.toDegrees(position.longitude),
+									CesiumMath.toDegrees(position.latitude), '', positions, options);
+						marker.drawingMode = DrawingTypes.DRAWING_MARKER_QUERY;
+
+						//执行选中动态
+						var screenPixel = SceneTransforms.wgs84ToWindowCoordinates(_self._scene, cartesian);
+						createDynamicReveal(_self, screenPixel, function(){
+							//执行监听事件
+							marker.mousePosition = movement.position;
+							_self._dispatchOverlayComplete(marker, [position], {extent : positions});
+						});
+						scene.refreshOnce = true;
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+	}
+
+    DrawingManager.prototype.startDrawingMarker = function (options) {
+		var _self = this;
+        var options = copyOptions(options, defaultBillboard);
+		
+        this.startDrawing(
+			function () {
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//设为可选状态
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_MARKER;
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        _self._markers = new BillboardGroup(this, options);
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+                var promise = pickSurface(scene, movement.position, undefined, options.heightOffset);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						var position = ellipsoid.cartesianToCartographic(cartesian);
+						var epsilon = CesiumMath.EPSILON7;
+						var positions = [Cartographic.fromRadians(position.longitude - epsilon, position.latitude - epsilon, position.height),
+										 Cartographic.fromRadians(position.longitude + epsilon, position.latitude + epsilon, position.height)];
+						
+						//绘制标记
+						var b = new MarkerCollection(_self._viewer);
+						var marker = b.addWithHeight(CesiumMath.toDegrees(position.longitude),
+									CesiumMath.toDegrees(position.latitude), position.height, '新点', positions, options);
+
+						_self._markers.addBillboard(cartesian);
+						_self.stopDrawing();
+						_self._drawPrimitives.add(b);
+						if(options.editable === undefined || options.editable){
+							marker.setEditable(true);
+						}
+
+						//执行监听事件
+						_self._dispatchOverlayComplete(marker, [position], {extent : positions}, options);
+
+						scene.refreshOnce = true;
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+			var position = movement.endPosition;
+			if (position != null && _self._showTooltip) {
+				//var promise = pickSurface(scene, position, undefined, options.heightOffset);
+				//when(promise, function(cartesian){
+				//	if (cartesian) {
+						tooltip.showAt(position, "点击添加");	//,位置: </p>" + getDisplayLatLngString(ellipsoid.cartesianToCartographic(cartesian)));
+				//	} else {
+				//		tooltip.showAt(position, "点击创建标记");
+				//	}
+				//});
+			}
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+    }
+
+	DrawingManager.prototype.startDrawingModel = function (options) {
+		var _self = this;
+        var options = copyOptions(options, defaultBillboard);
+		
+        this.startDrawing(
+			function () {
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//设为可选状态
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_MODEL;
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        _self._markers = new BillboardGroup(this, options);
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+                var promise = pickSurface(scene, movement.position, undefined, options.heightOffset);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						var position = ellipsoid.cartesianToCartographic(cartesian);
+						var epsilon = CesiumMath.EPSILON7;
+						var positions = [Cartographic.fromRadians(position.longitude - epsilon, position.latitude - epsilon, position.height),
+										 Cartographic.fromRadians(position.longitude + epsilon, position.latitude + epsilon, position.height)];
+						
+						//绘制标记
+						var b = new ModelCollection(_self._viewer);
+						var marker = b.addWithHeight(CesiumMath.toDegrees(position.longitude),
+									CesiumMath.toDegrees(position.latitude), position.height, '新点', positions, options);
+
+						_self._markers.addBillboard(cartesian);
+						_self.stopDrawing();
+						_self._drawPrimitives.add(b);
+						if(options.editable === undefined || options.editable){
+							marker.setEditable(true);
+						}
+
+						//执行监听事件
+						_self._dispatchOverlayComplete(marker, [position], {extent : positions}, options);
+
+						scene.refreshOnce = true;
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+			var position = movement.endPosition;
+			if (position != null && _self._showTooltip) {
+				tooltip.showAt(position, "点击添加");
+//				var promise = pickSurface(scene, position, undefined, options.heightOffset);
+//				when(promise, function(cartesian){
+//					if (cartesian) {
+//						tooltip.showAt(position, "点击添加");	//,位置: </p>" + getDisplayLatLngString(ellipsoid.cartesianToCartographic(cartesian)));
+//					} else {
+//						tooltip.showAt(position, "点击创建标记");
+//					}
+//				});
+			}
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+    }
+
+    DrawingManager.prototype.startDrawingPolygon = function (options) {
+        var options = copyOptions(options, defaultSurfaceOptions);
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_POLYGON;
+        this._startDrawingPolyshape(true, options);
+    }
+
+    DrawingManager.prototype.startDrawingPolyline = function (options) {
+        var options = copyOptions(options, defaultPolylineOptions);
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_POLYLINE;
+        this._startDrawingPolyshape(false, options);
+    }
+
+	DrawingManager.prototype.startDrawingDistance = function (options) {
+        var options = copyOptions(options, defaultPolylineOptions);
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_DISTANCE;
+        this._startDrawingPolyshape(false, options);
+    }
+
+    DrawingManager.prototype.startDrawingArea = function (options) {
+        var options = copyOptions(options, defaultSurfaceOptions);
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_AREA;
+        this._startDrawingPolyshape(true, options);
+    }
+
+	DrawingManager.prototype.startDrawingPolylineArrow = function (options) {
+        var options = copyOptions(options, defaultPolylineArrowOptions);
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_POLYLINE_ARROW;
+        this._startDrawingPolyshape(false, options);
+    }
+
+
+	DrawingManager.prototype.startDrawingHeight = function (options) {
+        var options = copyOptions(options, defaultPolylineOptions);
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_HEIGHT;
+		var _self = this;
+
+        this.startDrawing(
+			function () {
+				primitives = primitives && primitives.remove(circle) && primitives.remove(polyline);
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//派发绘制前事件
+		this._dispatchOverlayBegin(options);
+
+        
+        var scene = this._scene;
+		var viewer = this._viewer;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        var minPoints = 2;
+        var circle;
+		var polyline = new PolylinePrimitive(options);
+		polyline.heightReference = HeightReference.NONE;
+		polyline.asynchronous = false;
+		primitives.add(polyline);
+
+		var startCartesian;
+        var positions = [];
+        _self._markers = new BillboardGroup(this, defaultBillboard);
+			
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				// first click
+				if (positions.length == 0) {
+					var promise = pickSurface(scene, movement.position);
+					when(promise, function(cartesian){
+						startCartesian = cartesian;
+						if (startCartesian) {
+							if(defined(scene)) {
+								scene.refreshAlways = true;
+							}
+
+							positions.push(startCartesian.clone());
+							_self._markers.addBillboard(positions[0]);
+
+							var drawOptions = copyOptions(defaultSurfaceOptions, {
+									center: startCartesian,
+									radius: 0,
+									height : 0
+								});
+							drawOptions.asynchronous = false;
+
+							// create the circle
+							circle = new CirclePrimitive(drawOptions);
+							primitives.add(circle);
+						}
+					});
+				} else {
+					//关闭
+					_self.stopDrawing();
+					var promise = pickSurface(scene, movement.position); 
+					when(promise, function(endCartesian){
+						if(!defined(endCartesian))
+							return;
+						var endCarts = ellipsoid.cartesianToCartographic(endCartesian);
+						var centerCarts = ellipsoid.cartesianToCartographic(startCartesian);
+						var height = endCarts.height - centerCarts.height;
+						//执行查询
+						_self._dispatchOverlayComplete(null, null, {'target' : this}, {'height' : height});
+					});
+				}
+            }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+            var position = movement.endPosition;
+            if (position != null) {
+                if (positions.length == 0) {
+					tooltip.showAt("高度为: 0米"); 				
+                } else {
+					var promise =  pickSurface(scene, position);		//SceneTransforms.wgs84ToWindowCoordinates(_self._scene, position);
+					when(promise, function(endCartesian){
+						//var endCartesian = _self._scene.pickPosition(position);
+						if(!defined(endCartesian))
+							return;
+
+						var endCarts = ellipsoid.cartesianToCartographic(endCartesian);
+						var centerCarts = ellipsoid.cartesianToCartographic(startCartesian);
+						var height = endCarts.height - centerCarts.height;
+						centerCarts.height = endCarts.height;
+						var centerCartesian = ellipsoid.cartographicToCartesian(centerCarts);
+						
+						//绘制线
+						if(positions.length < 2){
+							positions.push(centerCartesian);
+							_self._markers.addBillboard(centerCartesian);
+						} else {
+							positions[1] = centerCartesian;
+							// update marker
+							_self._markers.getBillboard(positions.length - 1).position = centerCartesian;
+						}
+						polyline.positions = positions;
+						polyline._createPrimitive = true;
+						
+						//显示圆
+						if(defined(circle)){
+							circle.center = centerCartesian;
+							circle.height = endCarts.height;
+							circle.setRadius(Cartesian3.distance(centerCartesian, endCartesian));
+						}
+						
+						//显示提示信息
+						tooltip.showAt(position, "高度为: " + formatDistanceText(height));
+					});
+                }
+            }
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+    }
+
+	DrawingManager.prototype.startDrawingRectangleQuery = function (options) {
+		var _self = this;
+        var options = copyOptions(options, defaultSurfaceOptions);
+		options.perPositionHeight = false;
+		options.height = 0;
+
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_RECTANGLE_QUERY;
+		
+        this.startDrawing(
+			function () {
+				if (extent != null) {
+					primitives.remove(extent);
+				}
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//派发绘制前事件
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        var firstPoint = null;
+        var extent = null;
+		var height = options.altitude;
+        _self._markers = null;
+		
+		scene.screenSpaceCameraController.enableLook = false;
+		scene.screenSpaceCameraController.enableTilt = false;
+		scene.screenSpaceCameraController.enableRotate = false;
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+		
+        function updateExtent(value, options) {
+            if (extent == null) {
+                extent = new ExtentPrimitive(options);
+                extent.asynchronous = false;
+				extent.queryPrimitive = true;
+
+                primitives.add(extent);
+            }
+			extent.setExtent(value);
+        }
+
+		// Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+                var promise = pickSurface(scene, movement.position, options.altitude, options.aboveHeight);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (extent == null) {
+							if(defined(scene)) {
+								scene.refreshAlways = true;
+							}
+							// create the rectangle
+							firstPoint = ellipsoid.cartesianToCartographic(cartesian);
+							height = defined(height) ? height : firstPoint.height;
+							if(defined(options.aboveHeight)){
+								height += options.aboveHeight;
+							}
+
+							var value = getExtent(firstPoint, firstPoint);
+							updateExtent(value, options);
+							extent.height = height;
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_DOWN);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            var position = movement.endPosition;
+            if (position != null) {
+				var promise = pickSurface(scene, position, height);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (extent !== null) {
+							var moveCart = ellipsoid.cartesianToCartographic(cartesian);
+							var value = getExtent(firstPoint, moveCart);
+							updateExtent(value, options);
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+
+		_self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+                var promise = pickSurface(scene, movement.position, height);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (extent !== null) {
+							//绘制矩形
+							var cart = ellipsoid.cartesianToCartographic(cartesian);
+							var extentPoly = getExtent(firstPoint, cart);
+							updateExtent(extentPoly, options);
+
+							_self.stopDrawing();
+
+							//绘制矩形
+							var drawOptions = copyOptions(options, {
+									extent: extentPoly
+								});
+							drawOptions.asynchronous = false;
+
+							var extentPrimitive = new ExtentPrimitive(drawOptions);
+							extentPrimitive.queryPrimitive = true;
+							extentPrimitive.height = height;
+
+							//执行查询
+							_self._dispatchOverlayComplete(extentPrimitive, null, {'target' : this}, options);
+
+							scene.screenSpaceCameraController.enableLook = true;
+							scene.screenSpaceCameraController.enableTilt = true;
+							scene.screenSpaceCameraController.enableRotate = true;
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_UP);
+
+    }
+
+	DrawingManager.prototype.startDrawingRectangle = function (options) {
+		var _self = this;
+        var options = copyOptions(options, defaultSurfaceOptions);
+		options.perPositionHeight = false;
+		options.height = 0;
+
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_RECTANGLE;
+		
+        this.startDrawing(
+			function () {
+				if (extent != null) {
+					primitives.remove(extent);
+				}
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//派发绘制前事件
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        var firstPoint = null;
+        var extent = null;
+        _self._markers = null;
+		scene.screenSpaceCameraController.enableLook = false;
+		scene.screenSpaceCameraController.enableTilt = false;
+		scene.screenSpaceCameraController.enableRotate = false;
+
+		var height = options.altitude;
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        function updateExtent(value, options) {
+            if (extent == null) {
+                extent = new ExtentPrimitive(options);
+                extent.asynchronous = false;
+                primitives.add(extent);
+            }
+            extent.setExtent(value);
+
+            // update the markers
+            var corners = getExtentCorners(value);
+            // create if they do not yet exist
+
+			if (_self._markers == null) {
+				_self._markers = new BillboardGroup(_self, defaultBillboard);
+				_self._markers.addBillboards(corners);
+			} else {
+				_self._markers.updateBillboardsPositions(corners);
+			}
+        }
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+                var promise = pickSurface(scene, movement.position, options.altitude, options.aboveHeight);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (extent == null) {
+							if(defined(scene)) {
+								scene.refreshAlways = true;
+							}
+							// create the rectangle
+							firstPoint = ellipsoid.cartesianToCartographic(cartesian);
+							height = defined(height) ? height : firstPoint.height;
+							if(defined(options.aboveHeight)){
+								height += options.aboveHeight;
+							}
+
+							var value = getExtent(firstPoint, firstPoint);
+							updateExtent(value, options);
+							extent.height = height;
+						}
+					}
+				});
+            }
+		}, ScreenSpaceEventType.LEFT_DOWN);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+            var position = movement.endPosition;
+            if (position != null) {
+				var promise = pickSurface(scene, position, height);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (extent !== null) {
+							var moveCart = ellipsoid.cartesianToCartographic(cartesian);
+							var value = getExtent(firstPoint, moveCart);
+							updateExtent(value, options);
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+		
+		_self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+                var promise = pickSurface(scene, movement.position, height);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (extent !== null) {
+							//绘制矩形
+							var cart = ellipsoid.cartesianToCartographic(cartesian);
+							var extentPoly = getExtent(firstPoint, cart);
+							updateExtent(extentPoly, options);
+
+							_self.stopDrawing();
+
+							//绘制矩形
+							var drawOptions = copyOptions(options, {
+									extent: extentPoly
+								});
+							drawOptions.asynchronous = false;
+
+							var extentPrimitive = new ExtentPrimitive(drawOptions);
+							extentPrimitive.height = height;
+							
+							_self._drawPrimitives.add(extentPrimitive);
+
+							if(options.editable){
+								extentPrimitive.setEditable();
+							}
+
+							//执行查询
+							_self._dispatchOverlayComplete(extentPrimitive, null, {'target' : this}, options);
+
+							scene.screenSpaceCameraController.enableLook = true;
+							scene.screenSpaceCameraController.enableTilt = true;
+							scene.screenSpaceCameraController.enableRotate = true;
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_UP);
+    }
+
+	DrawingManager.prototype.startDrawingCircleQuery = function (options) {
+		var _self = this;
+        var options = copyOptions(options, defaultSurfaceOptions);
+
+        this.startDrawing(
+			function cleanUp() {
+				if (circle != null) {
+					primitives.remove(circle);
+				}
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_CIRCLE_QUERY;
+		//派发绘制前事件
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+		var height = options.altitude;
+
+        var circle = null;
+        _self._markers = null;
+
+		scene.screenSpaceCameraController.enableLook = false;
+		scene.screenSpaceCameraController.enableTilt = false;
+		scene.screenSpaceCameraController.enableRotate = false;
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position, options.altitude, options.aboveHeight);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (circle == null) {
+							if(defined(scene)) {
+								scene.refreshAlways = true;
+							}
+
+							//2.显示标签
+							tooltip.showCircleLabelText(movement.position, 0 ,true);
+
+							var cart = ellipsoid.cartesianToCartographic(cartesian);
+							height = defined(height) ? height : cart.height;
+							if(defined(options.aboveHeight)){
+								height += options.aboveHeight;
+							}
+
+							var drawOptions = copyOptions(options, {
+									center: cartesian,
+									radius: 0,
+									height : height,
+									material : options.material
+								});
+							drawOptions.asynchronous = false;
+
+							// create the circle
+							circle = new CirclePrimitive(drawOptions);
+							circle.queryPrimitive = true;
+							circle.height = height;
+							circle.aboveHeight = options.aboveHeight;
+
+							primitives.add(circle);
+							_self._markers = new BillboardGroup(_self, defaultBillboard);
+						} 
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_DOWN);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+            var position = movement.endPosition;
+            if (position != null) {
+				var promise = pickSurface(scene, position, height);
+				when(promise, function(cartesian){
+					if(cartesian !== null){
+						if (circle !== null) {
+							//设置标签值
+							tooltip.showCircleLabelText(undefined, getDistance(circle.getCenter(), cartesian) ,undefined);
+
+							circle.setRadius(Cartesian3.distance(circle.getCenter(), cartesian));
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+
+		_self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position, height);
+				when(promise, function(cartesian){
+					if (cartesian && circle != null) {
+	//                    if (circle !== null) {
+							//关闭标签
+							tooltip.showCircleLabelText(movement.position, 0 ,false);
+							
+							//绘制圆形
+							var drawOptions = copyOptions(options, {
+									center: circle.getCenter(),
+									radius: circle.getRadius(),
+									height : height,
+									material : options.material
+								});
+							drawOptions.asynchronous = false;
+							var circlePrimitive = new CirclePrimitive(drawOptions);
+							circlePrimitive.queryPrimitive = true;
+							//circlePrimitive.height = height;
+							circlePrimitive.aboveHeight = options.aboveHeight;
+
+							//执行查询
+							_self._dispatchOverlayComplete(circlePrimitive, null, {'target' : this}, options);
+							_self.stopDrawing();
+
+							scene.screenSpaceCameraController.enableLook = true;
+							scene.screenSpaceCameraController.enableTilt = true;
+							scene.screenSpaceCameraController.enableRotate = true;
+						}
+					});
+                }
+        }, ScreenSpaceEventType.LEFT_UP);
+    }
+
+    DrawingManager.prototype.startDrawingCircle = function (options) {
+		var _self = this;
+        var options = copyOptions(options, defaultSurfaceOptions);
+
+        this.startDrawing(
+			function cleanUp() {
+				if (circle != null) {
+					primitives.remove(circle);
+				}
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_CIRCLE;
+		//派发绘制前事件
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        var circle = null;
+        _self._markers = null;
+
+		scene.screenSpaceCameraController.enableLook = false;
+		scene.screenSpaceCameraController.enableTilt = false;
+		scene.screenSpaceCameraController.enableRotate = false;
+
+		var height = options.altitude;
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position, options.altitude, options.aboveHeight);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if (circle == null) {
+							if(defined(scene)) {
+								scene.refreshAlways = true;
+							}
+
+							//2.显示标签
+							tooltip.showCircleLabelText(movement.position, 0 ,true);
+
+							var cart = ellipsoid.cartesianToCartographic(cartesian);
+							height = defined(height) ? height : cart.height;
+							if(defined(options.aboveHeight)){
+								height += options.aboveHeight;
+							}
+
+							var drawOptions = copyOptions(options, {
+									center: cartesian,
+									radius: 0,
+									height : height,
+									material : options.material
+								});
+							drawOptions.asynchronous = false;
+
+							// create the circle
+							circle = new CirclePrimitive(drawOptions);
+							circle.height = height;
+							circle.aboveHeight = options.aboveHeight;
+
+							primitives.add(circle);
+							_self._markers = new BillboardGroup(_self, defaultBillboard);
+						} 
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_DOWN);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+            var position = movement.endPosition;
+            if (position != null) {
+				var promise = pickSurface(scene, position, height);
+				when(promise, function(cartesian){
+					if(cartesian !== null){
+						if (circle !== null) {
+							//设置标签值
+							tooltip.showCircleLabelText(undefined, getDistance(circle.getCenter(), cartesian) ,undefined);
+
+							circle.setRadius(Cartesian3.distance(circle.getCenter(), cartesian));
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+
+		_self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position, height);
+				when(promise, function(cartesian){
+					if (cartesian && circle != null) {
+						//关闭标签
+						tooltip.showCircleLabelText(movement.position, 0, false);
+
+						//绘制圆形
+						var drawOptions = copyOptions(options, {
+								center: circle.getCenter(),
+								radius: circle.getRadius(),
+								material : options.material,
+							});
+						drawOptions.asynchronous = false;
+						var circlePrimitive = new CirclePrimitive(drawOptions);
+						var cart = ellipsoid.cartesianToCartographic(cartesian);
+						circlePrimitive.height = height;
+						circlePrimitive.aboveHeight = options.aboveHeight;
+							
+						_self._drawPrimitives.add(circlePrimitive);
+
+						if(options.editable){
+							circlePrimitive.setEditable();
+						}
+
+						//执行监听事件
+						var centerPoint = ellipsoid.cartesianToCartographic(circlePrimitive.getCenter());
+						var endPoint = ellipsoid.cartesianToCartographic(cartesian);
+						var geodesic = new EllipsoidGeodesic(centerPoint, endPoint);
+
+						var cartesians = circlePrimitive.getCircleCartesianCoordinates(CesiumMath.PI_OVER_TWO)
+						var cartographics = ellipsoid.cartesianArrayToCartographicArray(cartesians);
+						_self._dispatchOverlayComplete(circlePrimitive, cartographics, {'center' : centerPoint, 'radius' : geodesic.surfaceDistance}, options);
+						
+						scene.screenSpaceCameraController.enableLook = true;
+						scene.screenSpaceCameraController.enableTilt = true;
+						scene.screenSpaceCameraController.enableRotate = true;
+
+						_self.stopDrawing();
+                    }
+                });
+			}
+        }, ScreenSpaceEventType.LEFT_UP);
+
+    }
+
+    DrawingManager.prototype.startDrawingPlot = function (type, options) {
+		options = copyOptions(options, defaultSurfaceOptions);
+		var _self = this;
+
+        this.startDrawing(
+			function () {
+				primitives = primitives && primitives.remove(poly);
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		updateToolIcon(this, false);
+		this._drawingMode = type;
+		//派发绘制前事件
+		this._dispatchOverlayBegin(options);
+
+        
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        var minPoints = 2;
+        var poly = new PlotPrimitive(type, options);
+        poly.asynchronous = false;
+        primitives.add(poly);
+
+        var positions = [];
+
+        this._markers = new BillboardGroup(this, defaultBillboard);
+        this._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        this._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position, options.altitude, options.aboveHeight);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if(defined(scene)) {
+							scene.refreshAlways = true;
+						}
+
+						// first click
+						if (positions.length == 0) {
+							positions.push(cartesian.clone());
+							_self._markers.addBillboard(positions[0]);
+						}
+
+						// add new point to polygon
+						// this one will move with the mouse
+						positions.push(cartesian);
+						// add marker at the new position
+						_self._markers.addBillboard(cartesian);
+						
+						if (poly.getPlot().fixPointCount == positions.length) {
+							_self.stopDrawing();
+
+							//清除最后重复点
+							positions = positions.splice(0, positions.length - 1);
+
+							//绘制标记箭头
+							options = options || {};
+							options.asynchronous = false;
+							var drawOptions = copyOptions(options, {
+								positions: positions
+							});
+							drawOptions.asynchronous = false;
+
+							var plot = new PlotPrimitive(type, drawOptions);
+							_self._drawPrimitives.add(plot);
+
+							if(options.editable){
+								plot.setEditable();
+							}
+
+							//执行监听事件
+							_self._dispatchOverlayComplete(plot, ellipsoid.cartesianArrayToCartographicArray(positions), {'target' : this}, options);
+						}
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+
+        this._mouseHandler.setInputAction(function (movement) {
+            var position = movement.endPosition;
+            if (position != null) {
+                if (positions.length == 0) {
+					if(_self._showTooltip){
+						tooltip.showAt(position, "点击添加第一个点");
+					}
+                } else {
+					var promise = pickSurface(scene, position, options.altitude, options.aboveHeight);
+					when(promise, function(cartesian){
+						if (cartesian) {
+							positions.pop();
+							// make sure it is slightly different
+							cartesian.y += (1 + Math.random());
+							positions.push(cartesian);
+							if (positions.length >= minPoints) {
+								poly.positions = positions;
+								poly._createPrimitive = true;
+							}
+							// update marker
+							_self._markers.getBillboard(positions.length - 1).position = cartesian;
+							// show tooltip
+							if(_self._showTooltip){
+								tooltip.showAt(position, (positions.length <= minPoints ? "点击添加新点 (" + positions.length + ")" : "") + (positions.length > minPoints ? "双击结束绘制" : ""));
+							}
+						}
+					});
+                }
+            }
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+
+        this._mouseHandler.setInputAction(function (movement) {
+            var position = movement.position;
+            if (position != null) {
+                if (positions.length < minPoints) {
+                    return;
+                } else {
+					var promise = pickSurface(scene, position, options.altitude, options.aboveHeight);
+					when(promise, function(cartesian){
+						if (cartesian) {
+							_self.stopDrawing();
+
+							//双击相对于执行了两次点击，需要去掉重复点两次
+							positions.pop();
+							positions.pop();
+
+							//绘制标记态势箭头
+							var drawOptions = copyOptions(options, {
+								positions: positions
+							});
+							drawOptions.asynchronous = false;
+
+							var plot = new PlotPrimitive(type, drawOptions);
+							_self._drawPrimitives.add(plot);
+
+							if(options.editable){
+								plot.setEditable();
+							}
+
+							//执行监听事件
+							_self._dispatchOverlayComplete(plot, ellipsoid.cartesianArrayToCartographicArray(positions), {'target' : this}, options);
+						}
+					});
+                }
+            }
+        }, ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    }
+
+	DrawingManager.prototype.startDrawingClickQuery = function (options) {
+		
+		var _self = this;
+
+        this.startDrawing(
+			function () {
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//设为可选状态
+		updateToolIcon(this, false);
+		this._drawingMode = DrawingTypes.DRAWING_CLICK_QUERY;
+		options = options || {};
+		this._dispatchOverlayBegin(options);
+
+        var scene = this._scene;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        _self._markers = new BillboardGroup(this, options);
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position);
+				when(promise, function(cartesian){
+					var position = ellipsoid.cartesianToCartographic(cartesian);
+					var b = new MarkerCollection(_self._viewer);
+					var marker = b.add(CesiumMath.toDegrees(position.longitude),
+									CesiumMath.toDegrees(position.latitude), '', '', options);
+					marker.mousePosition = movement.position;
+					
+					_self._dispatchOverlayComplete(marker, null, {'target' : this}, options);
+					scene.refreshOnce = true;
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+	}
+
+    DrawingManager.prototype._startDrawingPolyshape = function (isPolygon, options) {
+		var _self = this;
+
+        this.startDrawing(
+			function () {
+				primitives = primitives && primitives.remove(poly);
+				_self._markers = _self._markers && _self._markers.remove();
+				_self._mouseHandler = _self._mouseHandler && _self._mouseHandler.destroy();
+				tooltip = tooltip && tooltip.setVisible(false);
+			}
+		);
+
+		//派发绘制前事件
+//		if(isPolygon){
+//			this._drawingMode = DrawingTypes.DRAWING_POLYGON;
+//		} else {
+//			this._drawingMode = DrawingTypes.DRAWING_POLYLINE;
+//		}
+		this._dispatchOverlayBegin(options);
+
+        
+        var scene = this._scene;
+		var viewer = this._viewer;
+        var primitives = this._drawPrimitives;
+        var tooltip = this._tooltip;
+
+        var minPoints = isPolygon ? 3 : 2;
+        var poly;
+
+        if (isPolygon) {
+            poly = new PolygonPrimitive(options);
+        } else {
+			if(this._drawingMode === DrawingTypes.DRAWING_POLYLINE)
+				poly = new PolylinePrimitive(options);
+			else 
+				poly = new PolylineArrowPrimitive(options);
+			poly.heightReference = HeightReference.NONE;
+        }
+        poly.asynchronous = false;
+		poly.aboveHeight = options.aboveHeight;
+        primitives.add(poly);
+
+		var measureInfo = "";
+		if(this._drawingMode === DrawingTypes.DRAWING_DISTANCE){
+			measureInfo = "距离：";
+		} else if(this._drawingMode === DrawingTypes.DRAWING_AREA){
+			measureInfo = "面积：";
+		}
+
+        var positions = [];
+        _self._markers = new BillboardGroup(this, defaultBillboard);
+
+        _self._mouseHandler = new ScreenSpaceEventHandler(scene.canvas);
+
+        // Now wait for start
+        _self._mouseHandler.setInputAction(function (movement) {
+            if (movement.position != null) {
+				var promise = pickSurface(scene, movement.position, options.altitude, options.aboveHeight);
+				when(promise, function(cartesian){
+					if (cartesian) {
+						if(defined(scene)) {
+							scene.refreshAlways = true;
+						}
+
+						// first click
+						if (positions.length == 0) {
+							positions.push(cartesian.clone());
+							_self._markers.addBillboard(positions[0]);
+						}
+						if (positions.length >= minPoints) {
+							poly.positions = positions;
+							poly._createPrimitive = true;
+						}
+						// add new point to polygon
+						// this one will move with the mouse
+						positions.push(cartesian);
+						// add marker at the new position
+						_self._markers.addBillboard(cartesian);
+					}
+				});
+            }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+            var position = movement.endPosition;
+            if (position != null) {
+                if (positions.length == 0) {
+					if(_self._drawingMode === DrawingTypes.DRAWING_DISTANCE){
+						tooltip.showAt(position, measureInfo  + "0米"); 
+					} else if(_self._drawingMode === DrawingTypes.DRAWING_AREA){
+						tooltip.showAt(position, measureInfo  + "0平方米");
+					} else {
+						if(_self._showTooltip){
+							tooltip.showAt(position, "点击添加第一个点");
+						}
+					}				
+                } else {
+					var promise = pickSurface(scene, position, options.altitude, options.aboveHeight);
+					when(promise, function(cartesian){
+						if (cartesian) {
+							positions.pop();
+							// make sure it is slightly different
+							cartesian.y += (1 + Math.random());
+							positions.push(cartesian);
+							if (positions.length >= minPoints) {
+								poly.positions = positions;
+								poly._createPrimitive = true;
+							}
+							// update marker
+							_self._markers.getBillboard(positions.length - 1).position = cartesian;
+
+							// show tooltip
+							if(_self._drawingMode === DrawingTypes.DRAWING_DISTANCE){
+								var distance = computeDistances(positions);
+								var distanceText = formatDistanceText(distance);
+								tooltip.showAt(position, measureInfo + distanceText + (positions.length > minPoints ? ",双击结束" : ""));
+							} else if(_self._drawingMode === DrawingTypes.DRAWING_AREA){
+								var carts = ellipsoid.cartesianArrayToCartographicArray(positions);
+								var area = PolygonArea(carts);
+								var areaText = formatAreaText(area);
+								tooltip.showAt(position, measureInfo + areaText + (positions.length > minPoints ? ",双击结束" : ""));
+							} else {
+								if(_self._showTooltip){
+									tooltip.showAt(position, (positions.length <= minPoints ? "点击添加新点 (" + positions.length + ")" : "") + (positions.length > minPoints ? "双击结束绘制" : ""));
+								}
+							}
+						}
+					});
+                }
+            }
+        }, ScreenSpaceEventType.MOUSE_MOVE);
+
+        _self._mouseHandler.setInputAction(function (movement) {
+            var position = movement.position;
+            if (position != null) {
+                if (positions.length < minPoints + 2) {
+                    return;
+                } else {
+					var promise = pickSurface(scene, position, options.altitude, options.aboveHeight);
+					when(promise, function(cartesian){
+						if (cartesian) {
+							_self.stopDrawing();
+
+							//双击相对于执行了两次点击，需要去掉重复点两次
+							positions.pop();
+							positions.pop();
+
+							//if (typeof options.callback == 'function') {
+							// remove overlapping ones
+							var index = positions.length - 1;
+							// TODO - calculate some epsilon based on the zoom level
+							var epsilon = CesiumMath.EPSILON3;
+							for (; index > 0 && positions[index].equalsEpsilon(positions[index - 1], epsilon); index--) { }
+							//options.callback(positions.splice(0, index + 1));
+
+							//绘制多边形
+							var primitive;
+							
+							var drawOptions = copyOptions(options, {
+								positions: positions,
+								asynchronous : false
+							});
+							
+							if (isPolygon) {
+								primitive = new PolygonPrimitive(drawOptions);
+							} else {
+								if(_self._drawingMode === DrawingTypes.DRAWING_POLYLINE)
+									primitive = new PolylinePrimitive(drawOptions);
+								else 
+									primitive = new PolylineArrowPrimitive(drawOptions);
+								primitive.heightReference = HeightReference.NONE;
+							}
+							primitive.asynchronous = false;
+							primitive.aboveHeight = options.aboveHeight;
+
+							if(_self._drawingMode === DrawingTypes.DRAWING_DISTANCE){
+								var distance = computeDistances( positions );
+								//执行监听事件
+								_self._dispatchOverlayComplete(primitive, ellipsoid.cartesianArrayToCartographicArray(positions), {'target' : this}, {"distance" : distance});
+							} else if(_self._drawingMode === DrawingTypes.DRAWING_AREA){
+								var carts = ellipsoid.cartesianArrayToCartographicArray(positions);
+								var area = PolygonArea(carts);
+								//执行监听事件
+								_self._dispatchOverlayComplete(primitive, ellipsoid.cartesianArrayToCartographicArray(positions), {'target' : this}, {"area" : area});
+							} else {
+								_self._drawPrimitives.add(primitive);
+								if(options.editable){
+									primitive.setEditable();
+								}
+								//执行监听事件
+								_self._dispatchOverlayComplete(primitive, ellipsoid.cartesianArrayToCartographicArray(positions), {'target' : this}, options);
+							}
+						}
+					});
+                }
+            }
+        }, ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+    }
+
+	var screenPixel = new Cartesian2();
+	DrawingManager.prototype.drawDynamicMarker = function (billboard, index, selectable){
+		var cartographic = ellipsoid.cartesianToCartographic(billboard.position);
+		var height = this._scene.globe.getHeight(cartographic);
+		if (defined(height)) {
+			cartographic.height = height;
+			screenPixel = SceneTransforms.wgs84ToWindowCoordinates(this._scene, ellipsoid.cartographicToCartesian(cartographic), screenPixel);
+		} else {
+			screenPixel = SceneTransforms.wgs84ToWindowCoordinates(this._scene, billboard.position, screenPixel);
+		}
+
+		createDynamicMark(this, billboard, screenPixel, index, selectable);
+	}
+
+	function createDynamicMark(drawingManager, billboard, screenPixel, index, selectable){
+		if(!defined(billboard.markerPrimitive))
+			return;
+		var pos = index > 9 ? 9 : index;
+
+		var imageSize = selectable ? billboard.markerPrimitive.selectImageSize : billboard.markerPrimitive.imageSize;
+		var url = selectable ? billboard.markerPrimitive.selectUrl : billboard.markerPrimitive.url;
+		if(!defined(imageSize.width) || !defined(imageSize.height))
+			return;
+
+		var markerElement;
+		if(defined(screenPixel)){
+			if(!defined(drawingManager._viewerContainer)){
+				var viewerContainer = drawingManager._viewer.container.getElementsByClassName('cesium-viewer')[0];
+				drawingManager._viewerContainer = getElement(viewerContainer);
+			}
+
+			markerElement = document.createElement('div');
+			markerElement.className = 'cesium-drawingManager-marker-raise cesium-drawingManager-marker-' + pos;
+			markerElement.setAttribute('style', 'position: absolute; margin: 0px; padding: 0px; width: ' + 
+				imageSize.width + 'px; height: ' + imageSize.height + 'px; left:' + 
+				(Math.round(screenPixel.x) -Math.round(imageSize.width/2)) +  'px; top:' + (Math.round(screenPixel.y) - imageSize.height) +'px');
+
+			var imgElement = document.createElement('img');
+			imgElement.src = url;
+			markerElement.appendChild(imgElement);
+			drawingManager._viewerContainer.appendChild(markerElement);
+		}
+
+		var id=window.setTimeout(function(){
+			if(defined(markerElement)){
+				drawingManager._viewerContainer.removeChild(markerElement);
+			}
+			window.clearTimeout(id);
+			billboard.markerPrimitive.selectable = selectable;
+		},1000);
+	}
+
+    function getExtentCorners(value) {
+        return ellipsoid.cartographicArrayToCartesianArray([Rectangle.northwest(value), Rectangle.northeast(value), Rectangle.southeast(value), Rectangle.southwest(value)]);
+    }
+
+	DrawingManager.prototype.listenerMoveEnd = function(){
+		var self = this;
+		//_createPrimitive
+//		self._scene.camera.moveEnd.addEventListener(function(){
+//			for(var i = 0; i < self._drawPrimitives.length; i++){
+//				 var primitive = self._drawPrimitives.get(i);
+//				 if(defined(primitive) && primitive.isDestroyed && !primitive.isDestroyed()){
+//					 //点设置
+//					 if(defined(primitive.length)){
+//						 for(var j = 0; j < primitive.length; j++){
+//							 var marker = primitive.get(j);
+//							 if(defined(marker) && marker.isDestroyed && !marker.isDestroyed()){
+//									marker.needToUpdatePosition = true;
+//							 }
+//						 }
+//					 } else {
+//						 if(defined(primitive.boundSphere)){
+//							primitive.scene = self._scene;
+//							if(!defined(primitive.needToUpdatePosition) &&
+//								primitive.heightReference === HeightReference.CLAMP_TO_GROUND)
+//								primitive.needToUpdatePosition = true;
+//						 }
+//					 }
+//				 }
+//			}
+//		});
+	}
+
+
+	DrawingManager.prototype._setHighlighted = function(highlighted) {
+		var drawHelper = this.owner;
+		var scene = drawHelper._scene;
+
+		// if no change
+		// if already highlighted, the outline polygon will be available
+		if (this._highlighted && this._highlighted == highlighted) {
+			return;
+		}
+		// disable if already in edit mode
+		if (this._editMode === true) {
+			return;
+		}
+		this._highlighted = highlighted;
+		// highlight by creating an outline polygon matching the polygon points
+		if (highlighted) {
+			// make sure all other shapes are not highlighted
+			drawHelper.setHighlighted(this);
+			this._outlineColor = this.outlineColor;
+			this.setOutlineStyle(Color.fromCssColorString('white'), this.outlineWidth);
+		} else {
+			if (this._outlineColor) {
+				this.setOutlineStyle(this._outlineColor, this.outlineWidth);
+			} else {
+				this.setOutlineStyle(undefined, undefined);
+			}
+		}
+	}
+
+	function updateToolIcon(drawingManager, selected) {
+		var id = drawingManager._drawingMode;
+		var toolImage = document.getElementById('cesium-' + id + '-image');
+		if(!defined(toolImage))
+			return;
+		var url = toolImage.src;
+		var pos = url.lastIndexOf('/');
+		var parentUrl = url.substring(0, pos+1);
+		if(selected){
+			toolImage.src = parentUrl + id + '-Select.png';
+		} else {
+			toolImage.src = parentUrl + id + '.png';
+		}
+	}
+
+    // constructor
+    function DrawingTool(drawingManager, drawingToolOptions) {
+        this.drawingManager = drawingManager;
+		var options = defaultValue(drawingToolOptions, {});
+
+        //默认所有工具栏都显示
+        this.defaultDrawingModes = [
+			DrawingTypes.DRAWING_MARKER,
+			DrawingTypes.DRAWING_POLYLINE,
+			DrawingTypes.DRAWING_POLYGON,
+			DrawingTypes.DRAWING_POLYLINE_ARROW,
+
+			DrawingTypes.DRAWING_ATTACK_ARROW,
+			DrawingTypes.DRAWING_TAILED_ATTACK_ARROW,
+			DrawingTypes.DRAWING_DIAGONAL_ARROW,
+			DrawingTypes.DRAWING_TAILED_DIAGONAL_ARROW,
+			DrawingTypes.DRAWING_DOUBLE_ARROW,
+			DrawingTypes.DRAWING_STRAIGHT_ARROW,
+			
+			DrawingTypes.DRAWING_RECTANGLE,
+			DrawingTypes.DRAWING_CIRCLE
+		];
+
+        //工具栏可显示的绘制模式
+        if (options.drawingModes) {
+            this.drawingModes = options.drawingModes;
+        } else {
+            this.drawingModes = this.defaultDrawingModes
+        }
+
+        var drawOptions = {
+			markerQueryIcon : defaultValue(options.pointQueryIcon, buildModuleUrl("Widgets/Images/DrawingManager/MarkerQuery.png")),
+            markerIcon: defaultValue(options.pointIcon, buildModuleUrl("Widgets/Images/DrawingManager/Marker.png")),
+            polylineIcon: defaultValue(options.polylineIcon, buildModuleUrl("Widgets/Images/DrawingManager/Polyline.png")),
+			polylineArrowIcon: defaultValue(options.polylineArrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/Polyline.png")),
+            polygonIcon: defaultValue(options.polygonIcon, buildModuleUrl("Widgets/Images/DrawingManager/Polygon.png")),
+            circleIcon: defaultValue(options.circleIcon, buildModuleUrl("Widgets/Images/DrawingManager/Circle.png")),
+            rectangleIcon: defaultValue(options.rectangleIcon, buildModuleUrl("Widgets/Images/DrawingManager/Rectangle.png")),
+            clearIcon: defaultValue(options.clearIcon, buildModuleUrl("Widgets/Images/DrawingManager/Clear.png")),
+
+            arrowIcon: defaultValue(options.arrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/Arrow.png")),
+            attackArrowIcon: defaultValue(options.attackArrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/AttackArrow.png")),
+            tailedAttackArrowIcon: defaultValue(options.tailedAttackArrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/TailedAttackArrow.png")),
+            diagonalArrowIcon: defaultValue(options.diagonalArrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/DiagonalArrow.png")),
+            tailedDiagonalArrowIcon: defaultValue(options.tailedDiagonalArrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/TailedDiagonalArrow.png")),
+            doubleArrowIcon: defaultValue(options.doubleArrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/DoubleArrow.png")),
+			straightArrowIcon : defaultValue(options.doubleArrowIcon, buildModuleUrl("Widgets/Images/DrawingManager/Arrow.png"))
+        };
+
+        fillOptions(options, drawOptions);
+
+        var _self = this;
+        var scene = drawingManager._scene;
+		
+		//*********************添加标绘项***********************/
+		for(var i = 0; i < _self.drawingModes.length; i++){
+			switch (_self.drawingModes[i])
+			{
+				case DrawingTypes.DRAWING_ATTACK_ARROW:
+					_self.arrowPanel = _self.arrowPanel || createArrowPanel('plot', options.arrowIcon, '态势箭头');
+					addIcon(DrawingTypes.DRAWING_ATTACK_ARROW, options.attackArrowIcon, '进攻方向', _self.arrowPanel, function () {
+						drawingManager.startDrawingPlot(DrawingTypes.DRAWING_ATTACK_ARROW, drawingManager._arrowOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_TAILED_ATTACK_ARROW:
+					_self.arrowPanel = _self.arrowPanel || createArrowPanel('plot', options.arrowIcon, '态势箭头');
+					addIcon(DrawingTypes.DRAWING_TAILED_ATTACK_ARROW, options.tailedAttackArrowIcon, '进攻方向(尾)', _self.arrowPanel, function () {
+						drawingManager.startDrawingPlot(DrawingTypes.DRAWING_TAILED_ATTACK_ARROW, drawingManager._arrowOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_DIAGONAL_ARROW:
+					_self.arrowPanel = _self.arrowPanel || createArrowPanel('plot', options.arrowIcon, '态势箭头');
+					addIcon(DrawingTypes.DRAWING_DIAGONAL_ARROW, options.diagonalArrowIcon, '分队战斗行动', _self.arrowPanel, function () {
+						drawingManager.startDrawingPlot(DrawingTypes.DRAWING_DIAGONAL_ARROW, drawingManager._arrowOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_TAILED_DIAGONAL_ARROW:
+					_self.arrowPanel = _self.arrowPanel || createArrowPanel('plot', options.arrowIcon, '态势箭头');
+					addIcon(DrawingTypes.DRAWING_TAILED_DIAGONAL_ARROW, options.tailedDiagonalArrowIcon, '分队战斗行动(尾)', _self.arrowPanel, function () {
+						drawingManager.startDrawingPlot(DrawingTypes.DRAWING_TAILED_DIAGONAL_ARROW, drawingManager._arrowOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_DOUBLE_ARROW:
+					_self.arrowPanel = _self.arrowPanel || createArrowPanel('plot', options.arrowIcon, '态势箭头');
+					addIcon(DrawingTypes.DRAWING_DOUBLE_ARROW, options.doubleArrowIcon, '钳击', _self.arrowPanel, function () {
+						drawingManager.startDrawingPlot(DrawingTypes.DRAWING_DOUBLE_ARROW, drawingManager._arrowOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_STRAIGHT_ARROW:
+					_self.arrowPanel = _self.arrowPanel || createArrowPanel('plot', options.arrowIcon, '态势箭头');
+					addIcon(DrawingTypes.DRAWING_STRAIGHT_ARROW, options.straightArrowIcon, '细直箭头', _self.arrowPanel, function () {
+						drawingManager.startDrawingPlot(DrawingTypes.DRAWING_STRAIGHT_ARROW, drawingManager._arrowOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_MARKER_QUERY: 
+					addIcon(DrawingTypes.DRAWING_MARKER_QUERY, options.markerQueryIcon, '点选', options.container, function () {
+							drawingManager.startDrawingMarkerQuery(drawingManager._markerQueryOptions);
+						});
+					break;
+				case DrawingTypes.DRAWING_MARKER : 
+					addIcon(DrawingTypes.DRAWING_MARKER, options.markerIcon, '标记', options.container, function () {
+						drawingManager.startDrawingMarker(drawingManager._markerOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_POLYLINE :
+					addIcon(DrawingTypes.DRAWING_POLYLINE, options.polylineIcon, '线段', options.container, function () {
+						drawingManager.startDrawingPolyline(drawingManager._polylineOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_POLYLINE_ARROW :
+					addIcon(DrawingTypes.DRAWING_POLYLINE_ARROW, options.polylineIcon, '线箭头', options.container, function () {
+						drawingManager.startDrawingPolylineArrow(drawingManager._polylineArrowOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_POLYGON : 
+					addIcon(DrawingTypes.DRAWING_POLYGON, options.polygonIcon, '多边形', options.container, function () {
+						drawingManager.startDrawingPolygon(drawingManager._polygonOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_RECTANGLE_QUERY : 
+					addIcon(DrawingTypes.DRAWING_RECTANGLE_QUERY, options.rectangleIcon, '框选', options.container, function () {
+						drawingManager.startDrawingRectangleQuery(drawingManager._rectangleQueryOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_RECTANGLE : 
+					addIcon(DrawingTypes.DRAWING_RECTANGLE, options.rectangleIcon, '矩形', options.container, function () {
+						drawingManager.startDrawingRectangle(drawingManager._rectangleOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_CIRCLE_QUERY : 
+					addIcon(DrawingTypes.DRAWING_CIRCLE_QUERY, options.circleIcon, '圈选', options.container, function () {
+						drawingManager.startDrawingCircleQuery(drawingManager._circleQueryOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_CIRCLE : 
+					addIcon(DrawingTypes.DRAWING_CIRCLE, options.circleIcon, '圆', options.container, function () {
+						drawingManager.startDrawingCircle(drawingManager._circleOptions);
+					});
+					break;
+				case DrawingTypes.DRAWING_CLEAR : 
+					addIcon(DrawingTypes.DRAWING_CLEAR, options.clearIcon, '删除所有编辑要素', options.container, function () {
+						drawingManager.clearEdit();
+						drawingManager.clearSelect();
+					});
+			}
+		}
+
+        //enhanceWithListeners(this);
+
+		function hasArrow(drawTool){
+
+			for(var i = 0; i < drawTool.drawingModes.length; i++){
+				switch (drawTool.drawingModes[i])
+				{
+					case DrawingTypes.DRAWING_ATTACK_ARROW:
+					case DrawingTypes.DRAWING_TAILED_ATTACK_ARROW:
+					case DrawingTypes.DRAWING_DIAGONAL_ARROW:
+					case DrawingTypes.DRAWING_TAILED_DIAGONAL_ARROW:
+					case DrawingTypes.DRAWING_DOUBLE_ARROW:
+					case DrawingTypes.DRAWING_STRAIGHT_ARROW:
+						return true;
+				}
+			}
+
+			return false;
+		}
+
+		function addIcon(id, url, title, container, callback) {
+            var toolbar = document.createElement('button');
+            toolbar.type = 'button';
+            toolbar.title = title;
+            toolbar.onclick = callback;
+            toolbar.className = 'cesium-button cesium-toolbar-button';
+            container.appendChild(toolbar);
+
+            var imgElement = document.createElement('img');
+            imgElement.setAttribute('draggable', 'false');
+            imgElement.className = 'cesium-drawingManager-selected';
+            imgElement.src = url;
+			imgElement.setAttribute('id', 'cesium-' + id + '-image');
+            toolbar.appendChild(imgElement);
+
+            return toolbar;
+        }
+
+        function createArrowPanel(id, url, title) {
+            var toolbar = document.createElement('button');
+            toolbar.type = 'button';
+            toolbar.title = title;
+            toolbar.className = 'cesium-button cesium-toolbar-button';
+            toolbar.setAttribute('data-bind', '\
+				click: toggleDropDown');
+
+            options.container.appendChild(toolbar);
+
+            var imgElement = document.createElement('img');
+            imgElement.setAttribute('draggable', 'false');
+            imgElement.className = 'cesium-drawingManager-selected';
+            imgElement.src = url;
+            toolbar.appendChild(imgElement);
+
+            var arrayElement = document.createElement('div');
+            arrayElement.className = 'cesium-drawingManager-arrow';
+            arrayElement.setAttribute('data-bind', '\
+				css: { "cesium-drawingManager-arrow-visible" : dropDownVisible }');
+            options.container.appendChild(arrayElement);
+
+            var arrowPanel = document.createElement('div');
+            arrowPanel.className = 'cesium-drawingManager-dropDown';
+            arrowPanel.setAttribute('data-bind', '\
+				css: { "cesium-drawingManager-dropDown-visible" : dropDownVisible }');
+
+            options.container.appendChild(arrowPanel);
+
+            //点击其他画面隐藏
+            var viewModel = options.viewModel;
+
+            knockout.applyBindings(viewModel, arrayElement);
+            knockout.applyBindings(viewModel, arrowPanel);
+            knockout.applyBindings(viewModel, toolbar);
+
+            var _closeDropDown = function (e) {
+                if (!(toolbar.contains(e.target) || arrowPanel.contains(e.target))) {
+                    viewModel.dropDownVisible = false;
+                }
+            };
+
+            if (FeatureDetection.supportsPointerEvents()) {
+                document.addEventListener('pointerdown', _closeDropDown, true);
+            } else {
+                document.addEventListener('mousedown', _closeDropDown, true);
+                document.addEventListener('touchstart', _closeDropDown, true);
+            }
+
+			return arrowPanel;
+        }
+    }
+
+
+    DrawingManager.prototype.addToolbar = function (container, viewModel, options) {
+        options = copyOptions(options, { container: container, viewModel : viewModel });
+        return new DrawingTool(this, options);
+    }
+
+    function getExtent(mn, mx) {
+        var e = new Rectangle();
+
+        // Re-order so west < east and south < north
+        e.west = Math.min(mn.longitude, mx.longitude);
+        e.east = Math.max(mn.longitude, mx.longitude);
+        e.south = Math.min(mn.latitude, mx.latitude);
+        e.north = Math.max(mn.latitude, mx.latitude);
+
+        // Check for approx equal (shouldn't require abs due to re-order)
+        var epsilon = CesiumMath.EPSILON7;
+
+        if ((e.east - e.west) < epsilon) {
+            e.east += epsilon * 2.0;
+        }
+
+        if ((e.north - e.south) < epsilon) {
+            e.north += epsilon * 2.0;
+        }
+
+        return e;
+    };
+
+    function createTooltip(frameDiv, viewModel) {
+
+        var tooltip = function (frameDiv) {
+
+			var div = document.getElementsByClassName('twipsy right')[0];
+			if(!defined(div)){
+				div = document.createElement('DIV');
+				div.className = "twipsy right";
+
+				var arrow = document.createElement('DIV');
+				arrow.className = "twipsy-arrow";
+				div.appendChild(arrow);
+
+				// add to frame div and display coordinates
+				frameDiv.appendChild(div);
+			}
+
+			var title = document.getElementsByClassName('twipsy-inner')[0];
+			if(!defined(title)){
+				title = document.createElement('DIV');
+				title.className = "twipsy-inner";
+				div.appendChild(title);
+			}
+
+            this._div = div;
+            this._title = title;
+
+			var cursorElement = document.getElementsByClassName('twipsy-cursor')[0];
+			if(!defined(cursorElement)){
+				cursorElement = document.createElement('img');
+				cursorElement.className = "twipsy-cursor";
+				cursorElement.setAttribute('draggable', 'false');
+				cursorElement.setAttribute('id', 'beyonmapImageCursor');
+				frameDiv.appendChild(cursorElement);
+			}
+
+			this._cursor = cursorElement;
+
+			var circleLabelElement = document.getElementsByClassName('cesium-circle-label')[0];
+			if(!defined(circleLabelElement)){
+				circleLabelElement = document.createElement('div');
+				circleLabelElement.className = 'cesium-circle-label';
+				circleLabelElement.innerHTML = '0米';
+				frameDiv.appendChild(circleLabelElement);
+			}
+
+			this._circleLabel = circleLabelElement;
+        }
+
+        tooltip.prototype.setVisible = function (visible) {
+            this._div.style.display = visible ? 'block' : 'none';
+        }
+
+		tooltip.prototype.setAllVisible = function (visible) {
+            this.setVisible(visible);
+			this._cursor.style.display = visible ? 'block' : 'none';
+			this._circleLabel.style.display = visible ? 'block' : 'none';
+        }
+
+		tooltip.prototype.setCursor = function (url, visible) {
+			if(!defined(url)){
+				visible = false;
+				this._cursor.style.display = 'none';
+				this._cursor.src = '';
+				return;
+			}
+				
+			this._cursor.style.display = visible ? 'block' : 'none';
+			this._cursor.src = url;  
+        }
+
+		tooltip.prototype.showCircleLabelText = function(positon, distance, visible){
+			if(defined(visible)){
+				this._circleLabel.style.display = visible ? 'block' : 'none';
+			}
+
+			if(defined(positon)){
+				this._circleLabel.style.left = (Math.round(positon.x) - 40) + "px";
+                this._circleLabel.style.top = (Math.round(positon.y) - 15) + "px";
+			}
+
+			this._circleLabel.innerHTML = formatDistanceText(distance);
+		};
+
+        tooltip.prototype.showAt = function (position, message) {
+            if (position && message) {
+                this.setVisible(true);
+                this._title.innerHTML = message;
+                this._div.style.left = position.x + 2 + "px";
+                this._div.style.top = (position.y - this._div.clientHeight / 2 + 20) + "px";
+
+				this._cursor.style.left = position.x - this._cursor.clientWidth / 2 + "px";
+				this._cursor.style.top = position.y - this._cursor.clientHeight + "px";
+            }
+        }
+
+        return new tooltip(frameDiv);
+    }
+
+    function getDisplayLatLngString(cartographic, precision) {
+        return CesiumMath.toDegrees(cartographic.longitude).toFixed(precision || 5) + ", " + CesiumMath.toDegrees(cartographic.latitude).toFixed(precision || 5);
+    }
+
+    function setListener(primitive, type, callback) {
+		primitive[type] = callback;
+    }
+
+	function removeListener(primitive, type) {
+		primitive[type] = undefined;
+    }
+
+    function enhanceWithListeners(element) {
+
+        element._listeners = {};
+
+        element.addListener = function (name, callback) {
+            this._listeners[name] = (this._listeners[name] || []);
+            this._listeners[name].push(callback);
+            return this._listeners[name].length;
+        }
+
+        element.executeListeners = function (event, defaultCallback) {
+            if (this._listeners[event.name] && this._listeners[event.name].length > 0) {
+                var index = 0;
+                for (; index < this._listeners[event.name].length; index++) {
+                    this._listeners[event.name][index](event);
+                }
+            } else {
+                if (defaultCallback) {
+                    defaultCallback(event);
+                }
+            }
+        }
+
+		element.removeListener = function (name) {
+            this._listeners[name] = (this._listeners[name] || []);
+            this._listeners[name] = [];
+        }
+    }
+
+	function imageLoad(url, callback) {
+		var img = new Image();
+		img.src = url;
+		if (img.complete) {
+			callback(img.width, img.height);
+		} else {
+			img.onload = function () {
+				callback(img.width, img.height);
+				img.onload = null;
+			};
+		};
+	};
+
+	/**
+	  * 为类型构造器建立继承关系
+	  * @name baidu.lang.inherits
+	  * @function
+	  * @grammar baidu.lang.inherits(subClass, superClass[, className])
+	  * @param {Function} subClass 子类构造器
+	  * @param {Function} superClass 父类构造器
+	  * @param {string} className 类名标识
+	  * @remark 使subClass继承superClass的prototype，
+	  * 因此subClass的实例能够使用superClass的prototype中定义的所有属性和方法。<br>
+	  * 这个函数实际上是建立了subClass和superClass的原型链集成，并对subClass进行了constructor修正。<br>
+	  * <strong>注意：如果要继承构造函数，需要在subClass里面call一下，具体见下面的demo例子</strong>
+	  * @shortcut inherits
+	  * @meta standard
+	  * @see DrawingEvent
+	  */
+	 function inherits(subClass, superClass, className) {
+		 var key, proto, 
+			 selfProps = subClass.prototype, 
+			 clazz = new Function();        
+		 clazz.prototype = superClass.prototype;
+		 proto = subClass.prototype = new clazz();
+		 for (key in selfProps) {
+			 proto[key] = selfProps[key];
+		 }
+		 subClass.prototype.constructor = subClass;
+		 subClass.superClass = superClass.prototype;
+
+		 if ("string" == typeof className) {
+			 proto._className = className;
+		 }
+	 };
+
+	function computeDistances( cartesians ){
+		var distance = 0;
+		if(defined(cartesians) && cartesians.length > 1){
+			for(var i = 0; i < cartesians.length-1; i++){
+				var firstCart = cartesians[i];
+				var secondCart = cartesians[i+1];
+				distance += getDistance(firstCart, secondCart);
+			}
+		}
+		return distance;
+	}
+
+	function getDistance( firstPoint, secondPoint ){
+		var centerPoint = ellipsoid.cartesianToCartographic(firstPoint);
+		var endPoint = ellipsoid.cartesianToCartographic(secondPoint);
+		var geodesic = new EllipsoidGeodesic(centerPoint, endPoint);
+
+		return geodesic.surfaceDistance;
+	}
+
+	function formatDistanceText(distance){
+		var text = '';
+		if(distance < 10000)
+			text = distance.toFixed(2) +"米 ";
+		else if(distance > 10000)
+			text = (Math.round(distance/100)/10).toFixed(1) + "公里 ";
+		return text;
+	}
+
+	function formatAreaText(area){
+		var text = '';
+		if(area < 1000000)
+			text = area.toFixed(2) + "平方米 ";
+		else if(area > 1000000)
+			text = (Math.round(area/100000)/10).toFixed(1) + "平方公里 ";
+		return text;
+	}
+
+	function createDynamicReveal(drawingManager, screenPixel, callback){
+		var revealElement;
+		if(defined(screenPixel)){
+			if(!defined(drawingManager._viewerContainer)){
+				var viewerContainer = drawingManager._viewer.container.getElementsByClassName('cesium-viewer')[0];
+				drawingManager._viewerContainer = getElement(viewerContainer);
+			}
+
+			revealElement = document.createElement('div');
+			revealElement.className = 'reveal-marker-circle reveal-marker-glow';
+			revealElement.setAttribute('style', 'position: absolute; margin: 0px; padding: 0px; width: 16px; height: 16px; overflow: hidden;left:' + 
+				(Math.round(screenPixel.x) - 8) +  'px; top:' + (Math.round(screenPixel.y) - 8) +'px');
+			drawingManager._viewerContainer.appendChild(revealElement);
+		}
+
+		var id=window.setTimeout(function(){
+				if(defined(revealElement)){
+					drawingManager._viewerContainer.removeChild(revealElement);
+				}
+				window.clearTimeout(id);
+				if(defined(callback)){
+					callback();
+				}
+			},300);
+	};
+
+    return DrawingManager;
+});
+

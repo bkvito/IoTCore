@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+		<title>二维可视化展现</title>
+		<script src="/webvis/resouces/common/Common.Config.js"></script>
+		<script>
+			pageResponse("css","bootstrap335");
+			pageResponse("css","accordionMenu");
+			pageResponse("css","fontAwesome");
+			pageResponse("css","layui");
+			pageResponse("css","common");
+			pageResponse("css","xydStyle");
+			pageResponse("css","xSkin");
+			pageResponse("css","jqueryCustomScrollbar");
+			pageResponse("css","ol4");
+			pageResponse("css","ol4ext");
+			
+		</script>
+	
+		<!--[if lt IE 9]>
+			<script>pageResponseie8service();</script>
+		<![endif]-->
+		<script>
+			pageResponse("javascript","jquery183");
+			pageResponse("javascript","xydPlus");
+			pageResponse("javascript","artTemplate");
+			pageResponse("javascript","accordionMenu");
+			pageResponse("javascript","jqueryCustomScrollbar");
+			pageResponse("javascript","webAnimations");
+			pageResponse("javascript","animatelo");
+			pageResponse("javascript","ol4");
+			pageResponse("javascript","ol4ext");
+		</script>
+	</head>
+	<!--<body class="model-transparent model-simple">-->
+	<body class="model-transparent model-simple">
+		<div id="x-console"></div>
+		<!-- <div id="body-background-image" style="">
+			<img src="../resouces/common/images/timg1.jpg" />
+		</div> -->
+
+		<div class="model-windows">
+		
+			<!--顶部导航-->
+			<div class="model-header" id="model-header">
+				<div class="page-back">
+					<div class="p-button">
+						<i class="iconfont fa fa-map-o"></i>
+					</div>
+					<div class="p-font">
+						<font>二维可视化展现</font>
+					</div>
+				</div>
+				<center>
+					<div class="page-title x-inlineblock">
+						<div class="t-logo">
+							<i class="iconfont fa fa-windows"></i>
+						</div>
+						<div class="t-box">
+							<div class="t-text">
+								<font>WEB二三维可视化系 统</font>
+							</div>
+							<div class="t-info">
+								2D & 3D Visualization System
+							</div>
+						</div>
+						<div class="t-datetime" id="times-box"></div>
+					</div>
+				</center>
+				<div class="page-config">
+					<ul class="botton-group" style="float: right;">
+						<li class="one-line x-inlineblock">
+							<div class="title set-skin">
+								<i class="iconfont fa fa-dashboard"></i>
+							</div>
+							<div class="menu-xiala position-bottom" style="width:102px;position: absolute;right: -24px;top: 50px;">
+								<div class="xiala-box">
+									<ul style="padding: 0;">
+										<li x_bind_button_name="SetSkin" skin="skin-default"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>默认</font></li>
+									</ul>
+									<ul style="padding: 0;">
+										<li x_bind_button_name="SetSkin" skin="skin-yellow"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>黄色</font>
+											
+										</li>
+										<li x_bind_button_name="SetSkin" skin="skin-blue"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>蓝色</font></li>
+										<li x_bind_button_name="SetSkin" skin="skin-green"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>绿色</font></li>
+										<li x_bind_button_name="SetSkin" skin="skin-red"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>红色</font></li>
+									</ul>
+								</div>
+							</div>
+						</li><li class="one-line x-inlineblock">
+							<div class="title set-sys">
+								<i class="iconfont fa fa-cog"></i>
+							</div>
+							<div class="menu-xiala position-bottom" style="width:102px;position: absolute;right: -24px;top: 45px;">
+								<div class="xiala-box">
+									<ul style="padding: 0;">
+										<li x_bind_button_name="SetBackgroundSkin" skin="0"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>水面</font></li>
+										<li x_bind_button_name="SetBackgroundSkin" skin="1"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>海洋</font></li>
+										<li x_bind_button_name="SetBackgroundSkin" skin="2"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>天空</font></li>
+										<li x_bind_button_name="SetBackgroundSkin" skin="3"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>云层</font></li>
+										<li x_bind_button_name="SetBackgroundSkin" skin="4"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>纯色</font></li>
+										<li x_bind_button_name="SetBackgroundSkin" skin="5"><i class="iconfont xyd-zhuti"></i>&nbsp;&nbsp;<font>背景图</font></li>
+									</ul>
+								</div>
+							</div>
+						</li><li class="one-line x-inlineblock">
+							<div class="title sys-out" x_bind_button_name="background-setting">
+								<i class="iconfont fa fa-power-off"></i>
+							</div>
+						</li>
+					</ul>
+				</div>
+			</div>
+			<!--用于三维展示局部，作为保留节点-->
+			<div id="map"></div>		
+
+		</div>
+
+		<link href="../resouces/private/css/layout2d.css" rel="stylesheet">
+		<script src="../resouces/private/js/config.js"></script>
+		<script src="../resouces/private/js/2d/2d.js"></script>
+		<script src="../resouces/private/js/2d/map.js"></script>
+		<script src="../resouces/private/js/2d/app.js"></script>
+	</body>
+</html>
+<script id="TemplateTopTimes" type="text/html">
+	<font class="time-bean time x-inlineblock">{{time}}</font>
+	<div class="time-bean date-week x-inlineblock">
+		<div class="date">{{date}}</div>
+		<div class="week" style="">{{week}}</div>
+	</div>
+</script>
