@@ -106,7 +106,7 @@ function initScene(viewer){
         }
 
 //添加模型
-        if(treeNode.data&&!treeNode.model){
+        if(treeNode.data&&!treeNode.model  && treeNode.id != '40102' && treeNode.id != '40101'){
             var modelSetting=treeNode.data;
               var modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(position);
 

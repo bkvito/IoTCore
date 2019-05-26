@@ -199,6 +199,64 @@ layui.use(['table','element','layer']);
 		viewer.scene.globe.depthTestAgainstTerrain = true;
 		var scene = viewer.scene;
 
+		
+		
+		
+		
+		
+		
+		
+		//加载济南摄像头
+		
+
+		(function (){
+			var cameraJN = Cesium.Transforms.eastNorthUpToFixedFrame(new Cesium.Cartesian3(-2327549.5490871724,4561772.413825485,3789063.8534280146));
+			var cameralUrl="../data/model/camera/tileset.json";
+			var tilesetInfo = new Cesium.Cesium3DTileset({
+				url: cameralUrl,
+				modelMatrix:cameraJN			
+			});
+			tilesetInfo.nodeId='40101';
+			viewer.scene.primitives.add(tilesetInfo);
+			tilesetInfo.readyPromise.then(function(tileset) {
+				//不是单位矩阵，说明前面已经设置过模型矩阵
+				if(!tileset.modelMatrix.equals(Cesium.Matrix4.IDENTITY)){
+					tileset._root.transform = Cesium.Matrix4.IDENTITY;
+				}
+				var node=modelTree.getNodeByParam("id", tileset.nodeId, null);                
+				node.model=tileset;
+				//加载处理该节点下的关联模型
+				if(tileset.needProcessProperty){
+					tileset.processPropertyEvent=new Cesium.Event;
+					tileset.processPropertyEvent.addEventListener(process3dtilesProperty,modelTree);
+				}
+			});
+
+			//加载shopcamera
+			var shopJN= Cesium.Transforms.eastNorthUpToFixedFrame(new Cesium.Cartesian3(-2327549.5490871724,4561772.413825485,3789063.8534280146));
+			var shoplUrl="../data/model/camera/tileset.json";
+			var tilesetInfo1 = new Cesium.Cesium3DTileset({
+				url: shoplUrl,
+				modelMatrix:shopJN			
+			});
+			tilesetInfo1.nodeId='40102';
+			viewer.scene.primitives.add(tilesetInfo1);
+			tilesetInfo1.readyPromise.then(function(tileset) {
+				//不是单位矩阵，说明前面已经设置过模型矩阵
+				if(!tileset.modelMatrix.equals(Cesium.Matrix4.IDENTITY)){
+					tileset._root.transform = Cesium.Matrix4.IDENTITY;
+				}
+				var node=modelTree.getNodeByParam("id", tileset.nodeId, null);                
+				node.model=tileset;
+				//加载处理该节点下的关联模型
+				if(tileset.needProcessProperty){
+					tileset.processPropertyEvent=new Cesium.Event;
+					tileset.processPropertyEvent.addEventListener(process3dtilesProperty,modelTree);
+				}
+			});
+		})()
+		
+
 		//输出坐标
 		/*viewer.screenSpaceEventHandler.setInputAction(function onLeftClick(movement) {
 			let longitudeString =0;

@@ -358,8 +358,7 @@ function ControlScene(viewer){
         }else if(pickedObject.id instanceof Cesium.Entity){  //点击到entity
             var linShiId //网格id
             var gridBoxId//取出网格id中的数字
-            //弹出店铺面板
-             
+            //弹出店铺面板             
             var createGridDiv =function(num){
                 // if(pickedObject.id._id.match('backlog')){
                 //     var backlogIdString=pickedObject.id._id
@@ -602,7 +601,7 @@ function ControlScene(viewer){
             }
 
              
-            if(pickedObject.id._id.match('backlog')){
+            if(pickedObject.id._id.match('backlog')){//商铺待办事件
                 getWhichJson = 'blinkEntityORbacklog';
                 var backlogIdString=pickedObject.id._id
                 var backlogIdNumber =Number(backlogIdString.replace(/[^0-9]/ig,""))
@@ -703,11 +702,17 @@ function ControlScene(viewer){
 
 
             if(pickedObject.id._id == 'carsMonitor' && carPanelStatus == 0){//点击到道路监控网格 roadGrid
-                getWhichRoadJson ='carsMonitor'
 
-                smartReminder.roadEventClick()
+                if(entitiesActually.getById("roadBlinkEntity0")){
+                    getWhichRoadJson ='roadBlinkEntity'                    
+                    smartReminder.roadEventClick()                    
+                    getRoadInformation(getWhichRoadJson)
+                }else{
+                    getWhichRoadJson ='carsMonitor'                    
+                    smartReminder.roadEventClick()                    
+                    getRoadInformation(getWhichRoadJson)
+                }
                 
-                getRoadInformation(getWhichRoadJson)
                 // carPanelStatus =1
                 // entitiesActually.getById('carsMonitor').polygon.material=Cesium.Color.ORANGE.withAlpha(0.3)
                 // //网格管理  电子围栏
@@ -955,6 +960,24 @@ function ControlScene(viewer){
 
                     
                 // }
+            }
+            if(pickedObject.id._id.match("roadBlinkEntity")){//点中道路网格高亮事件
+                clearInterval(roadBlink1)
+                entitiesActually.remove(entitiesActually.getById('roadBlinkEntity0'))
+                entitiesActually.add({
+                    id:"roadBacklog0",
+                    polygon:{
+                    hierarchy : Cesium.Cartesian3.fromDegreesArrayHeights(roadGridArray),                            
+                    height:27.001,//定义了高度就不会贴着osgb了
+                    //颜色回调
+                    material :Cesium.Color.GRAY.withAlpha(1),                    
+                    outline : true,
+                    outlineColor : Cesium.Color.BLACK
+                    }
+                })
+                getWhichRoadJson ='roadBlinkEntity'                    
+                smartReminder.roadEventClick()                    
+                getRoadInformation(getWhichRoadJson)
             }
             var name=pickedObject.id.name;
             treeNode=modelTree.getNodeByParam("modelId", name, null);
